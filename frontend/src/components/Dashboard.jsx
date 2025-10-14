@@ -18,7 +18,6 @@ export default function Dashboard() {
       <main className="flex-1 p-6 space-y-6">
           <MetricsRow logs={logs} />
 
-          {/* Updated layout without QueryPanel */}
           <div className="grid grid-cols-2 gap-6">
             <VerdictPanel verdict={verdict} responseText={responseText} />
             <LogsTable logs={logs} />

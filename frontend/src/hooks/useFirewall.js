@@ -1,48 +1,35 @@
-import { useState } from "react";
+"use client";
+import { useState, useEffect } from "react";
 
 export default function useFirewall() {
-const [query, setQuery] = useState("");
-const [verdict, setVerdict] = useState(null);
-const [responseText, setResponseText] = useState("");
-const [logs, setLogs] = useState([]);
+  const [verdict, setVerdict] = useState(null);
+  const [responseText, setResponseText] = useState("");
+  const [logs, setLogs] = useState([]);
 
-const maliciousTriggers = ["hack", "password", "drop table", "select", "delete", "—injection"];
+  // 🔥 Listen only — no sending
+  useEffect(() => {
+    const source = new EventSource("http://localhost:5000/stream");
 
-function evaluateQuery(q) {
-    const lower = q.toLowerCase();
-    return maliciousTriggers.some((t) => lower.includes(t));
-}
+    source.onmessage = (event) => {
+      const data = JSON.parse(event.data); // { query, decision, reason, time }
 
-function sendQuery() {
-    if (!query.trim()) return;
-    const isBlocked = evaluateQuery(query);
-    const time = new Date().toLocaleString();
+      setLogs((prev) => [{ ...data, id: Date.now() }, ...prev].slice(0, 100));
 
-    const newLog = {
-    id: logs.length + 1,
-    time,
-    query,
-    verdict: isBlocked ? "BLOCKED" : "SAFE",
-    action: isBlocked ? "Blocked" : "Returned (sanitized)",
+      setVerdict(data.decision === "BLOCK" ? "blocked" : "safe");
+      setResponseText(
+        data.decision === "BLOCK"
+          ? `⚠️ Blocked: ${data.reason}`
+          : "✅ Passed Firewall."
+      );
     };
 
-    setLogs([newLog, ...logs]);
-    setVerdict(isBlocked ? "blocked" : "safe");
-    setResponseText(
-    isBlocked
-        ? "⚠️ Query blocked by ZeroSec Firewall."
-        : "Here is your safe answer (mocked):\n\n- Summary: Relevant info returned.\n- Notes: No sensitive data detected."
-    );
-    setQuery("");
-}
+    source.onerror = () => {
+      console.warn("SSE connection lost");
+      source.close();
+    };
 
-return {
-    query,
-    setQuery,
-    verdict,
-    responseText,
-    logs,
-    sendQuery,
-    maliciousTriggers,
-};
+    return () => source.close();
+  }, []);
+
+  return { verdict, responseText, logs };
 }

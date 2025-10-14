@@ -11,7 +11,7 @@ export default function useFirewall() {
     const source = new EventSource("http://localhost:5000/stream");
 
     source.onmessage = (event) => {
-      const data = JSON.parse(event.data); // { query, decision, reason, time }
+      const data = JSON.parse(event.data);
 
       setLogs((prev) => [{ ...data, id: Date.now() }, ...prev].slice(0, 100));
 

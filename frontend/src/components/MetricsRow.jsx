@@ -1,3 +1,4 @@
+import PropTypes from "prop-types";
 import GradientCard from "@/common/GradientCard";
 
 export default function MetricsRow({ logs }) {
@@ -26,3 +27,16 @@ return (
     </div>
 );
 }
+
+// ✅ Prop validation
+MetricsRow.propTypes = {
+logs: PropTypes.arrayOf(
+    PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    time: PropTypes.string,
+    query: PropTypes.string,
+    verdict: PropTypes.string,
+    action: PropTypes.string,
+    })
+).isRequired,
+};

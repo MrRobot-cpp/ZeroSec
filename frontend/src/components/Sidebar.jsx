@@ -20,10 +20,6 @@ return (
         <span>Settings</span>
         </button>
     </nav>
-    <div className="mt-auto p-4 bg-gradient-to-r from-purple-600 to-pink-500 rounded-xl text-center">
-        <p className="font-bold">Go Pro</p>
-        <p className="text-sm">Upgrade Now</p>
-    </div>
     </aside>
 );
 }

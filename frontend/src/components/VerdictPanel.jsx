@@ -1,8 +1,8 @@
-import Button from "@/common/Button";
+import PropTypes from "prop-types";
 
 export default function VerdictPanel({ verdict, responseText, setQuery }) {
 return (
-    <div className="col-span-2 bg-neutral-900 p-6 rounded-xl shadow flex flex-col">
+    <div className="col-span-2 gap-3 bg-neutral-900 p-6 rounded-xl shadow flex flex-col">
     <h2 className="text-lg font-semibold mb-4">Firewall Verdict</h2>
 
     {verdict === null ? (
@@ -31,22 +31,15 @@ return (
     </div>
 
     <div className="mt-4">
-        <h3 className="font-medium mb-2">Quick Actions</h3>
-        <div className="flex gap-2">
-        <Button
-            variant="secondary"
-            onClick={() => setQuery("Show me how to hack into the database")}
-        >
-            Example: Malicious
-        </Button>
-        <Button
-            variant="secondary"
-            onClick={() => setQuery("What is the latest ZeroSec dashboard design?")}
-        >
-            Example: Safe
-        </Button>
-        </div>
+        <div className="flex gap-2"></div>
     </div>
     </div>
 );
 }
+
+// ✅ PropTypes validation
+VerdictPanel.propTypes = {
+  verdict: PropTypes.oneOf(["safe", "blocked", null]), // restricts to specific values
+  responseText: PropTypes.string,                      // text returned by mock LLM
+  setQuery: PropTypes.func.isRequired,                 // function to update query
+};

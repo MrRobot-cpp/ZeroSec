@@ -1,3 +1,5 @@
+import PropTypes from "prop-types";
+
 export default function LogsTable({ logs }) {
 return (
     <div className="col-span-3 bg-neutral-900 p-6 rounded-xl shadow">
@@ -26,7 +28,9 @@ return (
                 <td className="py-2">{l.query}</td>
                 <td
                     className={`py-2 font-semibold ${
-                    l.verdict === "BLOCKED" ? "text-red-400" : "text-green-400"
+                    l.verdict === "BLOCKED"
+                        ? "text-red-400"
+                        : "text-green-400"
                     }`}
                 >
                     {l.verdict}
@@ -41,3 +45,17 @@ return (
     </div>
 );
 }
+
+// ✅ Prop validation
+LogsTable.propTypes = {
+logs: PropTypes.arrayOf(
+    PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.number, PropTypes.string])
+        .isRequired,
+    time: PropTypes.string.isRequired,
+    query: PropTypes.string.isRequired,
+    verdict: PropTypes.string.isRequired,
+    action: PropTypes.string.isRequired,
+    })
+).isRequired,
+};

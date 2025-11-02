@@ -1,4 +1,3 @@
-# firewall.py
 """
 ZeroSec Firewall (dual mode combined)
 - Flask API for dashboard + SSE
@@ -11,12 +10,6 @@ from pytector import PromptInjectionDetector
 import re, json, csv, datetime, threading, queue
 from pathlib import Path
 from flask_cors import CORS
-<<<<<<< Updated upstream
-import time
-import json
-import re
-=======
->>>>>>> Stashed changes
 
 # ==============================
 # CONFIG
@@ -28,28 +21,6 @@ CSV_FILE = LOG_DIR / "detections.csv"
 TXT_LOG = LOG_DIR / "detections.log"
 SANITIZE_ON_BLOCK = True
 
-<<<<<<< Updated upstream
-# ✅ Allow your frontend to call this backend
-CORS(app, origins=["http://localhost:3000"], supports_credentials=True)
-
-# Example detection rules
-RULES = [
-    {"name": "Prompt Injection", "pattern": r"(ignore previous instructions|system override|you are now|act as|disregard this|jailbreak|### system override|<!--.*?-->)"},
-    {"name": "Backdoor Trigger", "pattern": r"(BEGIN SECRET INSTRUCTION|TRIGGER_PHRASE_\w+|__ACTIVATE__)"},
-    {"name": "Data Poisoning Pattern", "pattern": r"(===SYSTEM===|FAKE_METADATA|POISON_TAG)"},
-    {"name": "Canary Exposure", "pattern": r"(CANARY_[A-Z0-9]{6,}|HONEYTOKEN_[A-Z0-9]{6,})"},
-    {"name": "PII Leak - Email", "pattern": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"},
-    {"name": "PII Leak - Phone", "pattern": r"(\+?\d{1,2}[-.\s]?)?(\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}"},
-    {"name": "PII Leak - Credit Card", "pattern": r"\b(?:\d[ -]*?){13,16}\b"},
-    {"name": "SQL Injection", "pattern": r"(DROP TABLE|UNION SELECT|INSERT INTO|DELETE FROM|UPDATE .* SET)"},
-    {"name": "Path Traversal", "pattern": r"(\.\./|\.\.\\|/etc/passwd|C:\\\\Windows\\\\System32)"},
-    {"name": "Command Injection", "pattern": r"(; *rm -rf|&& *mkdir|` *cat|powershell.exe|cmd.exe|ls -la)"},
-    {"name": "Phishing Trigger", "pattern": r"(reset your password|verify your identity|click here to claim|limited-time offer)"}
-]
-
-# ✅ SSE Stream for Dashboard
-clients = []
-=======
 EXFIL_KEYWORDS = [
     "api key", "api_key", "apikey", "secret", "password", "passwd",
     "access token", "access_token", "private key", "private_key",
@@ -104,7 +75,7 @@ print("Hugging Face model loaded successfully.\n")
 
 # ==============================
 # STATS + STREAM
-# ==============================   
+# ==============================
 stats = {"total_queries": 0, "total_blocks": 0}
 event_queue = queue.Queue()
 
@@ -113,7 +84,6 @@ event_queue = queue.Queue()
 # ==============================
 def inspect_prompt(prompt):
     stats["total_queries"] += 1
-
     try:
         inj, score = detector.detect_injection(prompt)
     except Exception as e:
@@ -144,7 +114,6 @@ def inspect_prompt(prompt):
         "stats": stats.copy(),
     }
 
-    # push to dashboard stream
     event_queue.put(json.dumps(result))
     return result
 
@@ -160,14 +129,17 @@ def inspect():
     prompt = data.get("chunk", "")
     result = inspect_prompt(prompt)
     return jsonify(result)
->>>>>>> Stashed changes
 
 @app.route("/stream")
 def stream():
     def sse():
+        yield "retry: 3000\n\n"
         while True:
-            msg = event_queue.get()
-            yield f"data: {msg}\n\n"
+            try:
+                msg = event_queue.get(timeout=10)
+                yield f"data: {msg}\n\n"
+            except queue.Empty:
+                yield "data: {}\n\n"  # heartbeat
     headers = {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -182,7 +154,7 @@ def get_logs():
     entries = []
     if CSV_FILE.exists():
         with CSV_FILE.open("r", encoding="utf-8") as f:
-            next(f, None)  # skip header
+            next(f, None)
             for line in f:
                 parts = line.strip().split(",")
                 if len(parts) < 7:
@@ -215,7 +187,6 @@ def run_cli():
             continue
         if prompt.lower() in ("exit", "quit"):
             break
-
         result = inspect_prompt(prompt)
         print(f"→ decision: {result['decision']} ({result['reason']}) | score={result['score']:.4f}")
         if result['decision'] != "ALLOW":

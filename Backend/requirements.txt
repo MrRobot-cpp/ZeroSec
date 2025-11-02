@@ -1,0 +1,21 @@
+# Core web + API
+Flask==3.0.3
+Flask-Cors==4.0.0
+
+# ML / detection
+pytector==0.3.2
+transformers>=4.44.0
+torch>=2.2.0
+
+# Utilities
+regex>=2023.12.25
+requests>=2.32.3
+
+# CSV / data handling
+pandas>=2.2.2
+
+# Logging / system
+tqdm>=4.66.5
+
+# Optional (for CLI color + UX)
+rich>=13.7.1

@@ -15,25 +15,38 @@ export default function useFirewall() {
     sourceRef.current = source;
 
     source.onmessage = (event) => {
-      if (!event.data || event.data === "{}") return; // heartbeat
+      if (!event.data || event.data.startsWith(":")) return; // ignore heartbeats/comments
       try {
         const data = JSON.parse(event.data);
         if (!data.query) return;
 
-        // Update logs
+        // Update logs (keep latest 200)
         setLogs((prev) => [{ ...data, id: Date.now() }, ...prev].slice(0, 200));
 
         // Update stats
-        const total_queries = data.stats?.total_queries ?? stats.total_queries + 1;
-        const total_blocks = data.stats?.total_blocks ?? stats.total_blocks + (data.decision !== "ALLOW" ? 1 : 0);
-        setStats({ total_queries, total_blocks });
+        setStats((prev) => {
+          const total_queries = prev.total_queries + 1;
+          const total_blocks =
+            prev.total_blocks + (data.decision !== "ALLOW" ? 1 : 0);
+          return { total_queries, total_blocks };
+        });
 
-        // Update verdict
-        const isBlocked = data.decision !== "ALLOW";
-        const emoji = isBlocked ? "🚫" : "✅";
-        const msg = isBlocked ? `Blocked: ${data.reason}` : `Passed: ${data.reason}`;
-        setVerdict(isBlocked ? "blocked" : "safe");
-        setResponseText(`${emoji} ${msg} — [${total_blocks}/${total_queries} blocked]`);
+        // Update verdict & message
+        setVerdict(data.decision !== "ALLOW" ? "blocked" : "safe");
+        const emoji = data.decision !== "ALLOW" ? "🚫" : "✅";
+        const msg =
+          data.decision !== "ALLOW"
+            ? `Blocked: ${data.reason || "unknown"}`
+            : "Passed firewall checks";
+
+        // Update responseText using latest stats
+        setResponseText((prev) => {
+          const total = stats.total_queries + 1; // estimate next total
+          const blocked =
+            stats.total_blocks +
+            (data.decision !== "ALLOW" ? 1 : 0); // estimate next blocked
+          return `${emoji} ${msg} — [${blocked}/${total} blocked]`;
+        });
       } catch (err) {
         console.error("SSE parse error:", err);
       }
@@ -58,14 +71,19 @@ export default function useFirewall() {
     (async () => {
       try {
         const res = await fetch("http://localhost:5200/logs", {
-          headers: { "Accept": "application/json" },
+          headers: { Accept: "application/json" },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        setLogs(data.reverse().slice(0, 200));
 
-        const total = data.length;
-        const blocks = data.filter((l) => l.decision === "BLOCK" || l.decision === "QUARANTINE").length;
+        // Old logs in reverse order (latest first)
+        const latestLogs = data.reverse().slice(0, 200);
+        setLogs(latestLogs);
+
+        const total = latestLogs.length;
+        const blocks = latestLogs.filter(
+          (l) => l.decision === "BLOCK" || l.decision === "QUARANTINE"
+        ).length;
         setStats({ total_queries: total, total_blocks: blocks });
       } catch (err) {
         console.warn("⚠️ Could not load previous logs:", err);

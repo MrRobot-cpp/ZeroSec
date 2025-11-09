@@ -1,45 +1,8 @@
-// src/components/LogsTable.jsx
-import React, { useEffect, useState } from "react";
+import React from "react";
 import PropTypes from "prop-types";
 
-export default function LogsTable() {
-  const [logs, setLogs] = useState([]);
-
-  // Fetch previous logs on mount
-  useEffect(() => {
-    fetch("http://localhost:5200/logs")
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((data) => setLogs(data))
-      .catch((err) => console.error("Could not load previous logs:", err));
-  }, []);
-
-  // Subscribe to SSE for real-time updates
-  useEffect(() => {
-    const eventSource = new EventSource("http://localhost:5200/stream");
-
-    eventSource.onmessage = (event) => {
-      try {
-        const log = JSON.parse(event.data);
-        setLogs((prevLogs) => [log, ...prevLogs]);
-      } catch (err) {
-        console.error("Failed to parse SSE data:", err);
-      }
-    };
-
-    eventSource.onerror = (err) => {
-      console.error("SSE connection error:", err);
-      eventSource.close();
-    };
-
-    return () => eventSource.close();
-  }, []);
-
-  // Limit long queries for display
-  const truncate = (str, max = 100) =>
-    str.length > max ? str.slice(0, max) + "..." : str;
+export default function LogsTable({ logs }) {
+  const truncate = (str, max = 100) => (str.length > max ? str.slice(0, max) + "..." : str);
 
   return (
     <div className="col-span-3 bg-neutral-900 p-6 rounded-xl shadow">
@@ -64,8 +27,8 @@ export default function LogsTable() {
                 </td>
               </tr>
             ) : (
-              logs.map((log, idx) => (
-                <tr key={idx} className="border-t border-neutral-950">
+              logs.map((log) => (
+                <tr key={log.id} className="border-t border-neutral-950">
                   <td className="py-2">{truncate(log.query)}</td>
                   <td className="py-2 text-sm text-gray-300">{log.score}</td>
                   <td className="py-2 text-sm text-gray-300">{log.timestamp}</td>
@@ -81,9 +44,7 @@ export default function LogsTable() {
                     {log.decision}
                   </td>
                   <td className="py-2">{log.reason || "-"}</td>
-                  <td className="py-2 text-sm text-gray-300">
-                    {log.stopped_by || "-"}
-                  </td>
+                  <td className="py-2 text-sm text-gray-300">{log.stopped_by || "-"}</td>
                 </tr>
               ))
             )}
@@ -94,10 +55,10 @@ export default function LogsTable() {
   );
 }
 
-// Prop validation
 LogsTable.propTypes = {
   logs: PropTypes.arrayOf(
     PropTypes.shape({
+      id: PropTypes.number,
       query: PropTypes.string,
       score: PropTypes.number,
       timestamp: PropTypes.string,
@@ -105,5 +66,5 @@ LogsTable.propTypes = {
       reason: PropTypes.string,
       stopped_by: PropTypes.string,
     })
-  ),
+  ).isRequired,
 };

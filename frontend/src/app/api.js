@@ -14,7 +14,7 @@ export async function POST(req) {
       );
     }
 
-    const response = await fetch("http://127.0.0.1:5000/inspect", {
+    const response = await fetch("http://127.0.0.1:5200/inspect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chunk: query }),

@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# ML Models
+Backend/models/pii_pipeline.pkl
+*.pkl
+*.h5
+*.joblib
+*.pth

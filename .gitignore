@@ -40,3 +40,9 @@ logs/
 *.key
 docker-compose.override.yml
 docker-compose.debug.yml
+# ML Models
+Backend/models/pii_pipeline.pkl
+*.pkl
+*.h5
+*.joblib
+*.pth

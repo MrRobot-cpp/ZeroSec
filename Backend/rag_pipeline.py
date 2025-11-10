@@ -1,20 +1,17 @@
 """
-RAG pipeline (Ollama) + ZeroSec firewall.
-Writes results automatically to CSV log.
-Provides query_rag(question) -> dict with:
-{
-    "query": str,
-    "score": float,
-    "decision": "ALLOW"|"BLOCK"|"QUARANTINE",
-    "reason": str,
-    "stopped_by": str or None
-}
+RAG pipeline (Ollama) + ZeroSec firewall
+- Documents are loaded from ./docs and redacted for PII on retrieval only.
+- Prompt-injection detection blocks dangerous prompts/queries.
+- When a requested entity (email/phone) is found in docs, the assistant replies:
+    "<Subject>'s email is <REDACTED:email>"
+  and follows with an explanation why it's redacted.
+- Writes logs to CSV.
 """
 
 import re
-from pathlib import Path
 import csv
 import datetime
+from pathlib import Path
 import ollama
 import firewall
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
@@ -38,19 +35,8 @@ SYSTEM_INSTRUCTION = (
     "If the user requests disallowed actions, refuse briefly and offer safe, legal alternatives."
 )
 
-SAFE_REASON_MAP = {
-    "injection": "high-risk content",
-    "exfil_multiple": "high-risk content",
-    "exfil_single": "partially redacted",
-    "clean": "clean"
-}
-
-def safe_reason_label(reason: str) -> str:
-    return SAFE_REASON_MAP.get(reason, "high-risk content")
-
-
 # -------------------------
-# Initialize CSV log
+# CSV Logging
 # -------------------------
 def initialize_csv():
     CSV_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -65,14 +51,13 @@ def write_csv_log(result: dict):
         "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
         "query": result.get("query", ""),
         "score": float(result.get("score", 0.0)),
-        "decision": result.get("decision", "ALLOW").upper(),
+        "decision": result.get("decision", "ALLOW"),
         "reason": result.get("reason", ""),
         "stopped_by": result.get("stopped_by") or "-"
     }
     with CSV_FILE.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=entry.keys())
         writer.writerow(entry)
-
 
 # -------------------------
 # Load documents + vectorstore
@@ -90,10 +75,32 @@ print("Building vectorstore...")
 vectorstore = Chroma.from_texts(texts=texts, embedding=embeddings)
 retriever = vectorstore.as_retriever()
 
+# -------------------------
+# Helpers
+# -------------------------
+ENTITY_KEYWORDS = {
+    "email": re.compile(r"\bemail\b", re.I),
+    "phone": re.compile(r"\bphone\b|\bphone number\b|\bmobile\b|\bcall\b", re.I),
+    "credit card": re.compile(r"\bcredit card\b|\bcard number\b|\bcc\b", re.I),
+}
 
-# -------------------------
-# Clean LLM output
-# -------------------------
+def extract_entities_from_question(q: str):
+    found = []
+    for name, rx in ENTITY_KEYWORDS.items():
+        if rx.search(q):
+            found.append(name)
+    return found
+
+def extract_subject_name(q: str):
+    # look for "X's" pattern
+    m = re.search(r"([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})'s", q)
+    if m:
+        return m.group(1)
+    m = re.search(r"([a-z]+(?:\s+[a-z]+){0,3})'s", q)
+    if m:
+        return " ".join([w.capitalize() for w in m.group(1).split()])
+    return None
+
 def clean_rag_output(text: str) -> str:
     if not text:
         return ""
@@ -102,13 +109,14 @@ def clean_rag_output(text: str) -> str:
     t = re.sub(r"(?:\r?\n){3,}", "\n\n", t)
     return "\n".join(line.lstrip() for line in t.splitlines())
 
-
 # -------------------------
-# Build safe context
+# Build safe context (documents are inspected & redacted here)
 # -------------------------
 def build_safe_context(docs, max_docs=MAX_DOCS, max_chars_per_doc=MAX_CHARS_PER_DOC):
     parts = []
     removed = []
+    # collect per-doc flags so we can say if redaction occurred
+    redaction_info = []
 
     for i, doc in enumerate(docs[:max_docs]):
         name = getattr(doc, "metadata", {}).get("source", f"doc_{i}")
@@ -116,99 +124,125 @@ def build_safe_context(docs, max_docs=MAX_DOCS, max_chars_per_doc=MAX_CHARS_PER_
         info = firewall.inspect_document_text(text)
 
         if not info.get("include", False):
-            removed.append((name, safe_reason_label(info.get("reason", "high-risk"))))
+            removed.append((name, info.get("reason", "high-risk")))
             continue
 
-        snippet = (info.get("safe_text") or "")[:max_chars_per_doc]
-        parts.append(f"--- Document: {name} ---\n{snippet}\n")
+        safe_text = (info.get("safe_text") or "")[:max_chars_per_doc]
+        parts.append(f"--- Document: {name} ---\n{safe_text}\n")
+
+        # record if patterns were replaced
+        if info.get("patterns"):
+            redaction_info.append({"doc": name, "patterns": info.get("patterns")})
+        if info.get("ml_pii"):
+            redaction_info.append({"doc": name, "ml_pii": True, "ml_confidence": info.get("ml_confidence", 0.0)})
 
     header = ""
     if removed:
-        parts_list = [f"{n} ({r})" for (n, r) in removed]
+        parts_list = [f"{n} ({safe_reason})" for (n, safe_reason) in removed]
         joined = ", ".join(parts_list)
         header = (
             f"[NOTICE] Some retrieved documents were removed for safety: {joined}.\n"
             "Use only the documents shown below. Do not guess or infer removed content.\n\n"
         )
 
-    return header + "\n".join(parts)
-
+    context = header + "\n".join(parts)
+    return context, redaction_info
 
 # -------------------------
-# Main RAG query function
+# Main RAG function
+# -------------------------
+# -------------------------
+# Main RAG function (updated for consistent PII redaction)
 # -------------------------
 def query_rag(question: str) -> dict:
     stopped_by = None
     decision = "ALLOW"
     reason = ""
     score = 0.0
-    llm_answer = ""
 
-    # Retrieve documents
-    try:
-        docs = retriever.get_relevant_documents(question)
-    except Exception:
-        docs = retriever._get_relevant_documents(question, run_manager=None)
-
-    context = build_safe_context(docs) if docs else ""
-
-    # Firewall on query
-    q_info = firewall.inspect_text(question)
-    if q_info["decision"].upper() == "BLOCK":
+    # 1) Query-level prompt-injection detection
+    inj_flag, inj_score = firewall.detect_injection(question)
+    if inj_flag and inj_score >= firewall.INJECTION_THRESHOLD:
         stopped_by = "Query Firewall"
         decision = "BLOCK"
-        reason = q_info.get("reason", "high-risk content")
-        score = 1.0
-    elif q_info["decision"].upper() == "QUARANTINE":
-        question = q_info.get("sanitized", question)
-        stopped_by = "Query Firewall"
-        decision = "QUARANTINE"
-        reason = q_info.get("reason", "")
-        score = 1.0
+        reason = "prompt_injection"
+        score = inj_score
+        write_csv_log({"query": question, "score": score, "decision": decision, "reason": reason, "stopped_by": stopped_by})
+        print("\n⚠️ Blocked by Query Firewall\n")
+        return {"query": question, "score": score, "decision": decision, "reason": reason, "stopped_by": stopped_by}
 
-    # Build prompt + firewall check
+    # 2) Retrieve documents
+    try:
+        docs = retriever.get_relevant_documents(question)
+    except AttributeError:
+        docs = retriever._get_relevant_documents(question, run_manager=None)
+    except Exception as e:
+        print(f"[rag] Document retrieval failed: {e}")
+        docs = []
+
+    # 3) Build safe context (documents inspected & redacted)
+    context, redaction_info = build_safe_context(docs)
+
+    # 4) Build prompt for LLM and check injection
     prompt = f"{SYSTEM_INSTRUCTION}\n\n{context}\n\nUser: {question}\nAssistant:"
-    p_info = firewall.inspect_text(prompt)
-    if p_info["decision"].upper() != "ALLOW":
+    p_inj_flag, p_inj_score = firewall.detect_injection(prompt)
+    if p_inj_flag and p_inj_score >= firewall.INJECTION_THRESHOLD:
         stopped_by = "Prompt Firewall"
-        decision = p_info["decision"].upper()
-        reason = p_info.get("reason", "")
-        score = 1.0
+        decision = "BLOCK"
+        reason = "prompt_injection_in_prompt"
+        score = p_inj_score
+        write_csv_log({"query": question, "score": score, "decision": decision, "reason": reason, "stopped_by": stopped_by})
+        print("\n⚠️ Blocked by Prompt Firewall\n")
+        return {"query": question, "score": score, "decision": decision, "reason": reason, "stopped_by": stopped_by}
 
-    # Generate LLM response if allowed
-    if decision in ["ALLOW", "QUARANTINE"]:
-        response = ollama.generate(model=LLM_MODEL, prompt=prompt)
-        llm_text = getattr(response, "response", getattr(response, "text", getattr(response, "content", str(response)))).strip()
-        llm_answer = clean_rag_output(llm_text)
+    # 5) Generate LLM response
+    response = ollama.generate(model=LLM_MODEL, prompt=prompt)
+    llm_text = getattr(response, "response", getattr(response, "text", getattr(response, "content", str(response)))).strip()
+    llm_answer = clean_rag_output(llm_text)
 
-        o_info = firewall.inspect_text(llm_answer)
-        if o_info["decision"].upper() != "ALLOW":
-            stopped_by = "Output Firewall"
-            decision = o_info["decision"].upper()
-            reason = o_info.get("reason", "")
-            score = 1.0
+    # 6) Inspect LLM output for injection
+    out_inj_flag, out_inj_score = firewall.detect_injection(llm_answer)
+    if out_inj_flag and out_inj_score >= firewall.INJECTION_THRESHOLD:
+        stopped_by = "Output Firewall"
+        decision = "BLOCK"
+        reason = "prompt_injection_in_output"
+        score = out_inj_score
+        write_csv_log({"query": question, "score": score, "decision": decision, "reason": reason, "stopped_by": stopped_by})
+        print("\n⚠️ Blocked by Output Firewall\n")
+        return {"query": question, "score": score, "decision": decision, "reason": reason, "stopped_by": stopped_by}
 
-        # Print answer to terminal
-        print("\n🧠 LLM Answer:\n" + llm_answer + "\n")
+    # 7) Post-process: ensure consistent PII redaction for requested entities
+    requested_entities = extract_entities_from_question(question)
+    subject = extract_subject_name(question)
 
+    final_lines = []
+
+    if requested_entities:
+        # Always redact requested entities, regardless of document content
+        for ent in requested_entities:
+            placeholder = f"<REDACTED:{'email' if 'email' in ent else ('phone' if 'phone' in ent else 'pii')}>"
+            if subject:
+                final_lines.append(f"{subject}'s {ent} is {placeholder}")
+            else:
+                final_lines.append(f"The {ent} is {placeholder}")
+        explanation = (
+            "I apologize, but I cannot provide the real value because it is sensitive personal information. "
+            "It has been redacted to protect privacy."
+        )
+        final_answer = "\n".join(final_lines) + "\n\n" + explanation
     else:
-        print("\n⚠️  Blocked by Firewall:", stopped_by or decision, "\n")
+        # No requested entity: sanitize any PII in LLM answer
+        final_answer = firewall.sanitize_text(llm_answer)
 
-    result = {
-        "query": question,
-        "score": score,
-        "decision": decision,
-        "reason": reason,
-        "stopped_by": stopped_by
-    }
+    # 8) Print and log
+    print("\n🧠 LLM Answer:\n" + final_answer + "\n")
 
-    # Write to CSV
+    result = {"query": question, "score": score, "decision": decision, "reason": reason, "stopped_by": stopped_by}
     write_csv_log(result)
     return result
 
-
 # -------------------------
-# CLI for testing
+# CLI
 # -------------------------
 def run_cli():
     print("\nRAG CLI — Type 'exit' to quit.\n")
@@ -220,9 +254,7 @@ def run_cli():
             break
         if not q or q.lower() in ("exit", "quit"):
             break
-        ans = query_rag(q)
-        print("Firewall Log:", ans, "\n")
-
+        query_rag(q)
 
 if __name__ == "__main__":
     run_cli()

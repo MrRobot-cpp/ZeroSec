@@ -40,3 +40,8 @@ logs/
 *.key
 docker-compose.override.yml
 docker-compose.debug.yml
+
+# Snyk Security Extension - AI Rules (auto-generated)
+.github/instructions/snyk_rules.instructions.md
+models/
+*.pkl

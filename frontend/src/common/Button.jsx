@@ -1,3 +1,5 @@
+import PropTypes from "prop-types";
+
 export default function Button({
 children,
 onClick,
@@ -24,3 +26,11 @@ return (
     </button>
 );
 }
+
+// ✅ PropTypes validation
+Button.propTypes = {
+  children: PropTypes.node.isRequired,          // anything renderable
+  onClick: PropTypes.func,                      // optional click handler
+  variant: PropTypes.oneOf(["primary", "secondary", "danger"]), // restrict to known variants
+  className: PropTypes.string,                  // optional custom class
+};

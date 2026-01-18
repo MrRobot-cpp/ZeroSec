@@ -21,7 +21,7 @@ import os
 MODEL = "deberta"
 INJECTION_THRESHOLD = 0.3   # less aggressive; will block stronger injections
 SANITIZE_ON_QUARANTINE = True
-PII_MODEL_PATH = "models/pii_pipeline.pkl"  # change if your model file name differs
+PII_MODEL_PATH = "../models/pii_pipeline.pkl"  # change if your model file name differs
 ML_PII_CONFIDENCE_THRESHOLD = 0.9
 
 # Secrets regex patterns (used for redaction in documents)

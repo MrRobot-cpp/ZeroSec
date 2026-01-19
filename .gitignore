@@ -45,3 +45,5 @@ docker-compose.debug.yml
 .github/instructions/snyk_rules.instructions.md
 models/
 *.pkl
+
+nul

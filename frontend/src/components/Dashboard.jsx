@@ -9,7 +9,7 @@ export default function Dashboard() {
   const { verdict, responseText, logs = [] } = useFirewall(); // default empty array
 
   return (
-    <div className="flex min-h-screen bg-neutral-950 text-white">
+    <div className="flex min-h-screen bg-gray-900 text-white">
       <Sidebar />
       <main className="flex-1 p-6 space-y-6">
         {/* Metrics charts */}

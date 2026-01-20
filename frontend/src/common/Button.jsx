@@ -11,9 +11,9 @@ const base =
     "px-4 py-2 rounded-md font-medium transition-all duration-200 focus:outline-none";
 
 const styles = {
-    primary: "bg-gradient-to-r from-purple-500 to-indigo-500 hover:opacity-90",
-    secondary: "bg-neutral-800 hover:bg-neutral-700",
-    danger: "bg-red-600 hover:bg-red-700",
+    primary: "bg-blue-600 hover:bg-blue-700 text-white",
+    secondary: "bg-gray-800 hover:bg-gray-700 text-white",
+    danger: "bg-red-600 hover:bg-red-700 text-white",
 };
 
 return (

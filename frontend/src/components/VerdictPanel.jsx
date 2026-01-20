@@ -19,12 +19,12 @@ export default function VerdictPanel({ verdict, logs, responseText }) {
   }
 
   return (
-    <div className="col-span-2 gap-3 bg-neutral-900 p-6 rounded-xl shadow flex flex-col">
-      <h2 className="text-lg font-semibold mb-4">Firewall Verdict</h2>
+    <div className="col-span-2 gap-3 bg-gray-800 p-6 rounded-xl shadow flex flex-col border border-gray-700">
+      <h2 className="text-lg font-semibold mb-4 text-white">Firewall Verdict</h2>
 
       {/* ===== Verdict Display ===== */}
       {!lastLog ? (
-        <div className="p-4 bg-neutral-950 rounded-md text-gray-400">
+        <div className="p-4 bg-gray-900 rounded-md text-gray-400">
           No query sent yet.
         </div>
       ) : (
@@ -47,16 +47,16 @@ export default function VerdictPanel({ verdict, logs, responseText }) {
       )}
 
       {/* ===== Query Section ===== */}
-      <div className="p-4 bg-neutral-950 rounded-md mb-2 h-28 overflow-auto whitespace-pre-wrap">
-        <h3 className="font-semibold text-gray-300 mb-2 text-sm">🧠 Last Query</h3>
+      <div className="p-4 bg-gray-900 rounded-md mb-2 h-28 overflow-auto whitespace-pre-wrap border border-gray-700">
+        <h3 className="font-semibold text-gray-100 mb-2 text-sm">🧠 Last Query</h3>
         <pre className="text-gray-400 text-sm">
           {lastLog?.query || "No query sent yet."}
         </pre>
       </div>
 
       {/* ===== Response Section ===== */}
-      <div className="p-4 bg-neutral-950 rounded-md h-44 overflow-auto whitespace-pre-wrap">
-        <h3 className="font-semibold text-gray-300 mb-2 text-sm">💬 Response</h3>
+      <div className="p-4 bg-gray-900 rounded-md h-44 overflow-auto whitespace-pre-wrap border border-gray-700">
+        <h3 className="font-semibold text-gray-100 mb-2 text-sm">💬 Response</h3>
         <pre className="text-gray-400 text-sm">
           {lastLog?.decision === "BLOCK" && lastLog.reason === "PII detected"
             ? "🚫 Query blocked due to PII detection (email/phone)."

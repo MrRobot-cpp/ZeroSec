@@ -9,7 +9,6 @@ from backend.rag.prompt_builder import (
 )
 from backend.security import firewall
 
-retriever = build_retriever()
 LLM_MODEL = "llama2"
 
 def query_rag(question: str) -> dict:
@@ -18,28 +17,31 @@ def query_rag(question: str) -> dict:
     if inj:
         return {"decision": "BLOCK", "reason": "prompt_injection"}
 
-    # 2. Retrieve docs
+    # 2. Rebuild retriever dynamically (checks for new files)
+    retriever = build_retriever()
+
+    # 3. Retrieve docs
     docs = retriever.invoke(question)
 
-    # 3. Build context + prompt
+    # 4. Build context + prompt
     context = build_safe_context(docs)
     prompt = build_prompt(context, question)
 
-    # 4. Prompt firewall
+    # 5. Prompt firewall
     inj, score = firewall.detect_injection(prompt)
     if inj:
         return {"decision": "BLOCK", "reason": "prompt_injection_prompt"}
 
-    # 5. LLM call
+    # 6. LLM call
     response = ollama.generate(model=LLM_MODEL, prompt=prompt)
     answer = clean_rag_output(response["response"])
 
-    # 6. Output firewall
+    # 7. Output firewall
     inj, score = firewall.detect_injection(answer)
     if inj:
         return {"decision": "BLOCK", "reason": "prompt_injection_output"}
 
-    # 7. PII enforcement
+    # 8. PII enforcement
     entities = extract_entities_from_question(question)
     subject = extract_subject_name(question)
 

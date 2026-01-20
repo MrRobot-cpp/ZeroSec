@@ -47,3 +47,6 @@ models/
 *.pkl
 
 nul
+
+.claude
+

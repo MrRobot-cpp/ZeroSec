@@ -19,3 +19,8 @@ tqdm>=4.66.5
 
 # Optional (for CLI color + UX)
 rich>=13.7.1
+
+# Document parsing (Python 3.11 compatible)
+PyPDF2>=3.0.1
+python-docx>=1.1.0
+pypandoc>=1.12

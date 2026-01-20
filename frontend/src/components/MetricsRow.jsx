@@ -54,8 +54,8 @@ export default function MetricsCharts({ logs }) {
   return (
     <div className="grid grid-cols-3 gap-6">
       {/* ===== BAR CHART (Total / Blocked / Allowed) ===== */}
-      <div className="p-4 border rounded-2xl shadow">
-        <h2 className="text-xl mb-4 font-semibold">Firewall Verdicts</h2>
+      <div className="p-4 bg-gray-800 border border-gray-700 rounded-2xl shadow">
+        <h2 className="text-xl mb-4 font-semibold text-white">Firewall Verdicts</h2>
         <BarChart width={350} height={300} data={verdictBarData}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="name" />
@@ -67,14 +67,14 @@ export default function MetricsCharts({ logs }) {
             ))}
           </Bar>
         </BarChart>
-         <p className="text-sm text-white-500 mt-3">
+         <p className="text-sm text-gray-400 mt-3">
           Shows total requests analyzed and how many were blocked or allowed. Quick insight into firewall decision .
         </p>
       </div>
 
       {/* ===== PIE CHART (Attack Types Detected) ===== */}
-      <div className="p-4 border rounded-2xl shadow">
-        <h2 className="text-xl mb-4 font-semibold">Attack Types</h2>
+      <div className="p-4 bg-gray-800 border border-gray-700 rounded-2xl shadow">
+        <h2 className="text-xl mb-4 font-semibold text-white">Attack Types</h2>
         {attackPieData.length > 0 ? (
           <PieChart width={320} height={320}>
             <Pie
@@ -95,14 +95,14 @@ export default function MetricsCharts({ logs }) {
         ) : (
           <p className="text-gray-500 text-center mt-10">No attack data yet</p>
         )}
-         <p className="text-sm text-white-500 mt-3">
+         <p className="text-sm text-gray-400 mt-3">
           Visualizes detected attack types, helping identify which threat categories occur most frequently.
         </p>
       </div>
 
       {/* ===== LINE CHART (Risk Score Over Time) ===== */}
-      <div className="p-4 border rounded-2xl shadow">
-        <h2 className="text-xl mb-4 font-semibold">Risk Score Over Time</h2>
+      <div className="p-4 bg-gray-800 border border-gray-700 rounded-2xl shadow">
+        <h2 className="text-xl mb-4 font-semibold text-white">Risk Score Over Time</h2>
         <LineChart width={350} height={300} data={scoreLineData}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey="index" />
@@ -121,7 +121,7 @@ export default function MetricsCharts({ logs }) {
             activeDot={{ r: 8 }}
           />
         </LineChart>
-         <p className="text-sm text-white-500 mt-3">
+         <p className="text-sm text-gray-400 mt-3">
             Tracks risk scores over time to reveal trends in detection intensity and model response consistency.
         </p>
       </div>

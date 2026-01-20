@@ -8,9 +8,13 @@ from backend.services.logging_service import (
     log_decision,
     start_log_poller,
 )
+from backend.api.documents import documents_bp
 
 app = Flask("zerosec_api")
 CORS(app)
+
+# Register blueprints
+app.register_blueprint(documents_bp)
 
 @app.route("/query", methods=["POST"])
 def query_route():

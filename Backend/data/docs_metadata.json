@@ -1,0 +1,22 @@
+{
+  "doc5.txt": {
+    "uploaded_at": "2026-01-20T02:11:46.549232",
+    "sensitivity": "Low",
+    "status": "Scanned",
+    "acl_tags": [
+      "public"
+    ],
+    "issues": [],
+    "size": 79
+  },
+  "Egypt_is_a_country_with_one_of_the_oldest_civilizations_in_the_world.docx": {
+    "uploaded_at": "2026-01-20T02:29:19.521625",
+    "sensitivity": "Low",
+    "status": "Scanned",
+    "acl_tags": [
+      "public"
+    ],
+    "issues": [],
+    "size": 12764
+  }
+}

@@ -2,10 +2,10 @@ import PropTypes from "prop-types";
 
 export default function GradientCard({ label, value, gradient }) {
 const gradientMap = {
-    purple: "linear-gradient(to right, #a855f7, #6366f1)",
-    blue: "linear-gradient(to right, #3b82f6, #06b6d4)",
-    pink: "linear-gradient(to right, #ec4899, #ef4444)",
-    green: "linear-gradient(to right, #22c55e, #10b981)",
+    purple: "linear-gradient(to right, #60a5fa, #2563eb)",
+    blue: "linear-gradient(to right, #2563eb, #1d4ed8)",
+    pink: "linear-gradient(to right, #ef4444, #dc2626)",
+    green: "linear-gradient(to right, #10b981, #059669)",
 };
 
 return (

@@ -1,24 +1,37 @@
 "use client";
 import Sidebar from "./Sidebar";
-import MetricsRow from "./MetricsRow";
-import VerdictPanel from "./VerdictPanel";
-import LogsTable from "./LogsTable";
+import SecurityScore from "./SecurityScore";
+import TopAlerts from "./TopAlerts";
+import QueryOverview from "./QueryOverview";
+import BlockedAttacks from "./BlockedAttacks";
+import DataIntakeStatus from "./DataIntakeStatus";
+import SystemHealth from "./SystemHealth";
 import useFirewall from "@/hooks/useFirewall";
 
 export default function Dashboard() {
-  const { verdict, responseText, logs = [] } = useFirewall(); // default empty array
+  const { logs = [] } = useFirewall();
 
   return (
-    <div className="flex min-h-screen bg-gray-900 text-white">
+    <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
       <Sidebar />
-      <main className="flex-1 p-6 space-y-6">
-        {/* Metrics charts */}
-        <MetricsRow logs={logs} />
+      <main className="flex-1 p-6 flex flex-col overflow-hidden">
+        <div className="mb-4">
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <p className="text-gray-400 text-xs mt-1">High-level overview of system status</p>
+        </div>
 
-        {/* Verdict panel + logs table */}
-        <div className="grid grid-cols-2 gap-6">
-          <VerdictPanel verdict={verdict} responseText={responseText} logs={logs} />
-          <LogsTable logs={logs} />
+        {/* Top Row: 3 Components */}
+        <div className="grid grid-cols-3 gap-4 flex-1 mb-4">
+          <SecurityScore logs={logs} />
+          <TopAlerts logs={logs} />
+          <QueryOverview logs={logs} />
+        </div>
+
+        {/* Bottom Row: 3 Components */}
+        <div className="grid grid-cols-3 gap-4 flex-1">
+          <BlockedAttacks logs={logs} />
+          <DataIntakeStatus />
+          <SystemHealth />
         </div>
       </main>
     </div>

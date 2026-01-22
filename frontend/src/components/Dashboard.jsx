@@ -17,7 +17,6 @@ export default function Dashboard() {
       <main className="flex-1 p-6 flex flex-col overflow-hidden">
         <div className="mb-4">
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <p className="text-gray-400 text-xs mt-1">High-level overview of system status</p>
         </div>
 
         {/* Top Row: 3 Components */}

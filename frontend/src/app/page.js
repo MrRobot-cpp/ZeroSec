@@ -1,8 +1,6 @@
 "use client";
-import Dashboard from "@/components/Dashboard";
+import Landing from "@/components/Landing";
 
 export default function HomePage() {
-  return (
-      <Dashboard />
-  );
+  return <Landing />;
 }

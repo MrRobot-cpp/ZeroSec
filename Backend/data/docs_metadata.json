@@ -19,24 +19,14 @@
     "issues": [],
     "size": 12764
   },
-  "Assignment_INF330_Sp25_1.docx": {
-    "uploaded_at": "2026-01-23T17:24:21.328218",
+  "Foundation_of_Cyber_notes.pdf": {
+    "uploaded_at": "2026-01-23T00:42:14.600668",
     "sensitivity": "Low",
     "status": "Scanned",
     "acl_tags": [
       "public"
     ],
     "issues": [],
-    "size": 33508
-  },
-  "5d_ya_maged.docx": {
-    "uploaded_at": "2026-01-23T17:30:47.509098",
-    "sensitivity": "High",
-    "status": "Scanned",
-    "acl_tags": [
-      "restricted"
-    ],
-    "issues": [],
-    "size": 33143
+    "size": 24988696
   }
 }

@@ -1,10 +1,10 @@
-import os
 import json
 import re
 from pathlib import Path
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from werkzeug.utils import secure_filename
+from backend.services.rag_service import refresh_retriever
 
 documents_bp = Blueprint('documents', __name__)
 
@@ -220,6 +220,12 @@ def upload_document():
         }
         save_metadata(metadata)
 
+        # Auto-refresh vectorstore to include new document
+        try:
+            refresh_retriever()
+        except Exception:
+            pass  # Non-critical, will refresh on next query
+
         return jsonify({
             'message': 'File uploaded successfully',
             'document': {
@@ -233,6 +239,76 @@ def upload_document():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@documents_bp.route('/documents/<filename>', methods=['GET'])
+def get_document_details(filename):
+    """Get detailed information about a specific document"""
+    try:
+        filename = secure_filename(filename)
+        file_path = DOCS_PATH / filename
+
+        if not file_path.exists():
+            return jsonify({'error': 'File not found'}), 404
+
+        # Load metadata
+        metadata = load_metadata()
+        file_meta = metadata.get(filename, {})
+
+        # Get file stats
+        stats = file_path.stat()
+
+        # Extract content preview
+        content_preview = ""
+        try:
+            text_content = extract_text_from_file(file_path)
+            content_preview = text_content[:500] + "..." if len(text_content) > 500 else text_content
+        except Exception:
+            content_preview = "[Unable to extract content preview]"
+
+        # Build document details
+        document = {
+            'id': filename,
+            'name': filename,
+            'sensitivity': file_meta.get('sensitivity', 'Unknown'),
+            'status': file_meta.get('status', 'Uploaded'),
+            'acl_tags': file_meta.get('acl_tags', []),
+            'issues': file_meta.get('issues', []),
+            'size': stats.st_size,
+            'uploaded_at': file_meta.get('uploaded_at', datetime.fromtimestamp(stats.st_mtime).isoformat()),
+            'content_preview': content_preview,
+            'scan_results': {
+                'pii_count': len([i for i in file_meta.get('issues', []) if 'PII' in i]),
+                'injection_score': 0.0,
+            },
+            'abac_attributes': {
+                'department': 'All',
+                'clearance_level': 'Confidential' if file_meta.get('sensitivity') == 'High' else 'Public',
+                'data_classification': file_meta.get('sensitivity', 'Unknown'),
+                'retention_policy': 'Standard'
+            },
+            'activity_log': [
+                {
+                    'timestamp': file_meta.get('uploaded_at'),
+                    'action': 'Document uploaded',
+                    'user': 'System',
+                    'details': 'Initial upload and security scan'
+                },
+                {
+                    'timestamp': file_meta.get('uploaded_at'),
+                    'action': 'Security scan completed',
+                    'user': 'System',
+                    'details': f"Found {len(file_meta.get('issues', []))} issues"
+                }
+            ],
+            'access_count': file_meta.get('access_count', 0),
+            'last_accessed': file_meta.get('last_accessed')
+        }
+
+        return jsonify({'document': document}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @documents_bp.route('/documents/<filename>', methods=['DELETE'])
 def delete_document(filename):
@@ -253,6 +329,12 @@ def delete_document(filename):
             del metadata[filename]
             save_metadata(metadata)
 
+        # Auto-refresh vectorstore to remove deleted document
+        try:
+            refresh_retriever()
+        except Exception:
+            pass  # Non-critical, will refresh on next query
+
         return jsonify({'message': 'File deleted successfully'}), 200
 
     except Exception as e:
@@ -262,11 +344,7 @@ def delete_document(filename):
 def refresh_documents():
     """Force refresh the RAG retriever to pick up new documents"""
     try:
-        from backend.rag.retriever import build_retriever
-
-        # Force rebuild the retriever
-        build_retriever(force_reload=True)
-
+        refresh_retriever()
         return jsonify({'message': 'RAG retriever refreshed successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

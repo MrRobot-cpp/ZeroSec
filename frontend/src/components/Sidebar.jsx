@@ -11,6 +11,7 @@ export default function Sidebar() {
     { icon: "📄", label: "Documents", path: "/documents" },
     { icon: "🛡️", label: "Data Security", path: "/security" },
     { icon: "📊", label: "Analytics", path: "/analytics" },
+    { icon: "🔒", label: "Canary Watermark", path: "/canary" },
     { icon: "⚙️", label: "Settings", path: "/settings" },
   ];
 

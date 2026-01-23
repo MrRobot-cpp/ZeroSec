@@ -18,5 +18,15 @@
     ],
     "issues": [],
     "size": 12764
+  },
+  "Foundation_of_Cyber_notes.pdf": {
+    "uploaded_at": "2026-01-23T00:42:14.600668",
+    "sensitivity": "Low",
+    "status": "Scanned",
+    "acl_tags": [
+      "public"
+    ],
+    "issues": [],
+    "size": 24988696
   }
 }

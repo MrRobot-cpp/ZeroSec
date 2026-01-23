@@ -1,13 +1,19 @@
 "use client";
 import { useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import useDocuments from "@/hooks/useDocuments";
 
 export default function Documents() {
+  const router = useRouter();
   const { documents, loading, error, uploading, upload, remove } = useDocuments();
   const [uploadError, setUploadError] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const fileInputRef = useRef(null);
+
+  const viewDocument = (filename) => {
+    router.push(`/documents/${encodeURIComponent(filename)}`);
+  };
 
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
@@ -146,10 +152,13 @@ export default function Documents() {
                 {documents.map((doc) => (
                   <tr key={doc.id} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
                     <td className="py-3 px-4 text-gray-100">
-                      <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => viewDocument(doc.name)}
+                        className="flex items-center gap-2 hover:text-blue-400 transition-colors text-left"
+                      >
                         <span>📄</span>
-                        <span className="font-medium">{doc.name}</span>
-                      </div>
+                        <span className="font-medium hover:underline">{doc.name}</span>
+                      </button>
                     </td>
                     <td className={`py-3 px-4 font-semibold ${getSensitivityColor(doc.sensitivity)}`}>
                       {doc.sensitivity}
@@ -194,12 +203,20 @@ export default function Documents() {
                       {formatDate(doc.uploaded_at)}
                     </td>
                     <td className="py-3 px-4">
-                      <button
-                        onClick={() => setDeleteConfirm(doc.name)}
-                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm transition-colors"
-                      >
-                        Delete
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => viewDocument(doc.name)}
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors"
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm(doc.name)}
+                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

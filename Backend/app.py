@@ -9,12 +9,14 @@ from backend.services.logging_service import (
     start_log_poller,
 )
 from backend.api.documents import documents_bp
+from backend.api.canary import canary_bp
 
 app = Flask("zerosec_api")
-CORS(app)
+CORS(app, expose_headers=['X-Canary-ID', 'X-Output-Path', 'X-Canary-Hash', 'X-Canary-Meta', 'Content-Disposition'])
 
 # Register blueprints
 app.register_blueprint(documents_bp)
+app.register_blueprint(canary_bp)
 
 @app.route("/query", methods=["POST"])
 def query_route():

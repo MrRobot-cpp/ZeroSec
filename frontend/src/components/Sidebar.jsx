@@ -9,6 +9,7 @@ export default function Sidebar() {
     { label: "Dashboard", path: "/" },
     { label: "RAG Assistant", path: "/rag" },
     { label: "Documents", path: "/documents" },
+   { label: "Canary Watermark", path: "/canary" },
     { label: "Users & Access", path: "/users" },
     { label: "Logs & Alerts", path: "/logs-alerts" },
   ];

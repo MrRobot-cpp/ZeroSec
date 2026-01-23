@@ -31,13 +31,14 @@ export default function useDocuments() {
   /**
    * Upload a new document
    * @param {File} file - The file to upload
+   * @param {string} sensitivity - The sensitivity level ("high", "medium", "low") - defaults to "medium"
    * @returns {Promise<Object>} - Upload result
    */
-  const upload = useCallback(async (file) => {
+  const upload = useCallback(async (file, sensitivity = "medium") => {
     setUploading(true);
     setError(null);
     try {
-      const result = await uploadDocument(file);
+      const result = await uploadDocument(file, sensitivity);
       // Refresh the documents list after successful upload
       await fetchDocuments();
       return result;

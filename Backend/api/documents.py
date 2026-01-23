@@ -200,8 +200,13 @@ def upload_document():
         # Scan document for issues
         issues = scan_document(filename, text_content)
 
-        # Determine sensitivity based on issues
-        sensitivity = 'High' if any('PII' in issue for issue in issues) else 'Medium' if issues else 'Low'
+        # Determine sensitivity: use provided parameter, otherwise auto-detect
+        provided_sensitivity = request.form.get('sensitivity', '').lower()
+        if provided_sensitivity in ['high', 'medium', 'low']:
+            sensitivity = provided_sensitivity.capitalize()
+        else:
+            # Auto-detect based on issues
+            sensitivity = 'High' if any('PII' in issue for issue in issues) else 'Medium' if issues else 'Low'
 
         # Save metadata
         metadata = load_metadata()

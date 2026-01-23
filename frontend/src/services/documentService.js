@@ -32,12 +32,14 @@ export async function getDocuments() {
 /**
  * Upload a new document
  * @param {File} file - The file to upload
+ * @param {string} sensitivity - The sensitivity level ("high", "medium", "low")
  * @returns {Promise<Object>} - Upload response with document metadata
  */
-export async function uploadDocument(file) {
+export async function uploadDocument(file, sensitivity = "medium") {
   try {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("sensitivity", sensitivity);
 
     const response = await fetch(`${API_BASE_URL}/documents/upload`, {
       method: "POST",

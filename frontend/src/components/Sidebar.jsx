@@ -6,12 +6,13 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   const navItems = [
-    { label: "Dashboard", path: "/" },
-    { label: "RAG Assistant", path: "/rag" },
-    { label: "Documents", path: "/documents" },
-   { label: "Canary Watermark", path: "/canary" },
-    { label: "Users & Access", path: "/users" },
-    { label: "Logs & Alerts", path: "/logs-alerts" },
+    { label: "Dashboard", path: "/", icon: "📊" },
+    { label: "RAG Assistant", path: "/rag", icon: "💬" },
+    { label: "Documents", path: "/documents", icon: "📄" },
+    { label: "Canary Watermark", path: "/canary", icon: "🐤" },
+    { label: "Security Policies", path: "/policies", icon: "🛡️" },
+    { label: "Users & Access", path: "/users", icon: "👤" },
+    { label: "Logs & Alerts", path: "/logs-alerts", icon: "📋" },
   ];
 
   return (

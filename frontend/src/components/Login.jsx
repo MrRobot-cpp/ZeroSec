@@ -1,7 +1,9 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Login() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -142,6 +144,9 @@ export default function Login() {
       // 2. Redirect to dashboard
       // 3. Set up session timeout
       console.log("Login successful");
+
+      // Redirect to dashboard after successful login
+      router.push("/dashboard");
 
     } catch (err) {
       const newAttempts = loginAttempts + 1;

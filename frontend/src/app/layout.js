@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "ZeroSec V1",
+  title: "ZeroSec - Security For RAG Apps",
   description: "Security Tool For RAG Applications",
 };
 

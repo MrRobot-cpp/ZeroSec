@@ -39,7 +39,7 @@ export function useRagChat() {
         content: response.answer,
         timestamp: new Date().toISOString(),
         metadata: {
-          sources: response.sources?.length || 0,
+          sources: response.sources || [],
           ...response.metadata,
         },
       };

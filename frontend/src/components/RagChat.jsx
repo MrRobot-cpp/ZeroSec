@@ -105,11 +105,73 @@ export default function RagChat() {
                       <p className="text-sm whitespace-pre-wrap leading-relaxed">
                         {message.content}
                       </p>
-                      {message.metadata && (
-                        <div className="mt-2 pt-2 border-t border-gray-700">
-                          <p className="text-xs text-gray-400">
-                            Sources: {message.metadata.sources || "N/A"}
-                          </p>
+                      {message.metadata && message.metadata.sources && message.metadata.sources.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-gray-700">
+                          <div className="flex items-center gap-1.5 mb-3">
+                            <svg
+                              className="w-4 h-4 text-green-400"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                              />
+                            </svg>
+                            <span className="text-xs font-semibold text-green-400">
+                              Information retrieved from {message.metadata.sources.length} source{message.metadata.sources.length > 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {message.metadata.sources.map((source, idx) => (
+                              <div
+                                key={idx}
+                                className="bg-gray-800/60 rounded-lg p-3 border border-gray-700 hover:border-gray-600 transition-colors"
+                              >
+                                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                  <svg
+                                    className="w-4 h-4 text-blue-400 flex-shrink-0"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                                    />
+                                  </svg>
+                                  <span className="text-sm font-medium text-white">
+                                    {source.filename}
+                                  </span>
+                                  {source.relevance_score && (
+                                    <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">
+                                      {Math.round(source.relevance_score * 100)}% match
+                                    </span>
+                                  )}
+                                  {source.total_chunks > 1 && (
+                                    <span className="text-xs text-gray-500">
+                                      (chunk {source.chunk_index + 1}/{source.total_chunks})
+                                    </span>
+                                  )}
+                                  {source.was_redacted && (
+                                    <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">
+                                      redacted
+                                    </span>
+                                  )}
+                                </div>
+                                {source.content_preview && (
+                                  <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
+                                    {source.content_preview}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>

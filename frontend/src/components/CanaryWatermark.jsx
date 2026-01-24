@@ -102,8 +102,8 @@ export default function CanaryWatermark({ fileInputRef, setUploading, uploading 
             // Immediately update history state with the new entry
             setHistory(prev => [newEntry, ...prev.slice(0, 9)]);
             console.log('History updated with:', newEntry);
-            setUploadSuccess(`File "${file.name}" watermarked!`);
-            // Auto-download
+
+            // Auto-download the watermarked file
             const url = window.URL.createObjectURL(xhr.response);
             const a = document.createElement('a');
             a.href = url;
@@ -112,6 +112,19 @@ export default function CanaryWatermark({ fileInputRef, setUploading, uploading 
             a.click();
             a.remove();
             window.URL.revokeObjectURL(url);
+
+            // Auto-upload the watermarked file to RAG with high sensitivity
+            const blob = xhr.response;
+            const watermarkedFile = new File([blob], filename, { type: blob.type });
+            uploadDocument(watermarkedFile, "high")
+              .then(() => {
+                setUploadSuccess(`File "${file.name}" watermarked and uploaded to RAG with high sensitivity!`);
+              })
+              .catch((err) => {
+                console.error('Failed to upload to RAG:', err);
+                setUploadSuccess(`File "${file.name}" watermarked! (RAG upload failed: ${err.message})`);
+              });
+
             resolve();
           } else {
             let errMsg = 'Failed to watermark document.';
@@ -163,7 +176,7 @@ export default function CanaryWatermark({ fileInputRef, setUploading, uploading 
       setUploading(true);
       setUploadError(null);
       setUploadSuccess(null);
-      
+
       // Fetch the watermarked file from the output path
       const response = await fetch(entry.outputPath);
       if (!response.ok) {
@@ -171,10 +184,10 @@ export default function CanaryWatermark({ fileInputRef, setUploading, uploading 
       }
       const blob = await response.blob();
       const file = new File([blob], entry.filename, { type: blob.type });
-      
-      // Upload to RAG documents
-      await uploadDocument(file);
-      setUploadSuccess(`"${entry.filename}" uploaded to RAG successfully!`);
+
+      // Upload to RAG documents with high sensitivity
+      await uploadDocument(file, "high");
+      setUploadSuccess(`"${entry.filename}" uploaded to RAG with high sensitivity!`);
       setTimeout(() => setUploadSuccess(null), 5000);
     } catch (err) {
       setUploadError(`Failed to upload to RAG: ${err.message}`);

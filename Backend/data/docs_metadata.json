@@ -28,5 +28,25 @@
     ],
     "issues": [],
     "size": 24988696
+  },
+  "maze_project_report1.docx": {
+    "uploaded_at": "2026-01-24T01:52:06.045157",
+    "sensitivity": "High",
+    "status": "Scanned",
+    "acl_tags": [
+      "restricted"
+    ],
+    "issues": [],
+    "size": 224340
+  },
+  "IBM_ch4_and_ch5.docx": {
+    "uploaded_at": "2026-01-25T05:43:35.816746",
+    "sensitivity": "High",
+    "status": "Scanned",
+    "acl_tags": [
+      "restricted"
+    ],
+    "issues": [],
+    "size": 31534
   }
 }

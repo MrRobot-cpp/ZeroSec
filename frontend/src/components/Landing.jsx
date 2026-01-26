@@ -5,6 +5,7 @@ import Link from "next/link";
 export default function Landing() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pricingMode, setPricingMode] = useState('monthly');
 
   // Handle scroll for navbar background
   useEffect(() => {
@@ -147,6 +148,12 @@ export default function Landing() {
               >
                 Stats
               </a>
+              <a
+                href="#pricing"
+                className="text-gray-300 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md px-2 py-1"
+              >
+                Pricing
+              </a>
               <Link
                 href="/login"
                 className="text-gray-300 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md px-2 py-1"
@@ -211,6 +218,13 @@ export default function Landing() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Stats
+              </a>
+              <a
+                href="#pricing"
+                className="text-gray-300 hover:text-white transition-colors px-2 py-2 rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Pricing
               </a>
               <Link
                 href="/login"
@@ -450,6 +464,119 @@ export default function Landing() {
                   Sign In
                 </Link>
               </div>
+            </div>
+          </div>
+        </section>
+        {/* Subscriptions & Plans Section */}
+        <section
+          id="pricing"
+          className="py-24 px-4 sm:px-6 lg:px-8 bg-gray-900 border-t border-gray-800"
+          aria-labelledby="pricing-heading"
+        >
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 id="pricing-heading" className="text-3xl sm:text-4xl font-bold mb-4">
+                Flexible Pricing for <span className="text-blue-400">Powerful AI Security</span>
+              </h2>
+              <p className="text-lg text-gray-400 max-w-2xl mx-auto">
+                From protection to potential: Our multi-layered AI defense helps enterprises deploy with confidence, secure sensitive data, and scale without limits.
+              </p>
+            </div>
+            <div className="flex justify-center mb-10">
+              <div className="inline-flex bg-gray-800 rounded-full p-1 border border-gray-700">
+                <button
+                  className={`px-6 py-2 rounded-full font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${pricingMode === 'monthly' ? 'bg-blue-600 text-white' : 'text-gray-300'}`}
+                  onClick={() => setPricingMode('monthly')}
+                >
+                  Monthly
+                </button>
+                <button
+                  className={`px-6 py-2 rounded-full font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${pricingMode === 'annually' ? 'bg-blue-600 text-white' : 'text-gray-300'}`}
+                  onClick={() => setPricingMode('annually')}
+                >
+                  Annually
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {pricingMode === 'monthly' ? (
+                <>
+                  {/* Enterprise Monthly */}
+                  <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8 flex flex-col shadow-lg hover:shadow-blue-900/20 transition-all">
+                    <h3 className="text-xl font-semibold mb-2 text-white">Enterprise</h3>
+                    <div className="text-4xl font-bold mb-2 text-blue-400">$929<span className="text-base font-medium text-gray-400">/per month</span></div>
+                    <ul className="text-gray-300 text-sm space-y-3 mb-8 mt-4">
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Everything in Professional</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Unlimited API calls</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Dedicated account manager</li>
+                    </ul>
+                    <button className="mt-auto w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-all">Get Started →</button>
+                  </div>
+                  {/* Starter Monthly */}
+                  <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8 flex flex-col shadow-lg hover:shadow-blue-900/20 transition-all">
+                    <h3 className="text-xl font-semibold mb-2 text-white">Starter</h3>
+                    <div className="text-4xl font-bold mb-2 text-blue-400">$529<span className="text-base font-medium text-gray-400">/per month</span></div>
+                    <ul className="text-gray-300 text-sm space-y-3 mb-8 mt-4">
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Access to core AI tools</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Up to 5,000 API calls/month</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Basic analytics dashboard</li>
+                    </ul>
+                    <button className="mt-auto w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-all">Get Started →</button>
+                  </div>
+                  {/* Professional Monthly */}
+                  <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8 flex flex-col shadow-lg hover:shadow-blue-900/20 transition-all">
+                    <h3 className="text-xl font-semibold mb-2 text-white">Professional</h3>
+                    <div className="text-4xl font-bold mb-2 text-blue-400">$729<span className="text-base font-medium text-gray-400">/per month</span></div>
+                    <ul className="text-gray-300 text-sm space-y-3 mb-8 mt-4">
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Everything in Starter</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Up to 50,000 API calls/month</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Advanced analytics and reporting</li>
+                    </ul>
+                    <button className="mt-auto w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-all">Get Started →</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Enterprise Annually */}
+                  <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8 flex flex-col shadow-lg hover:shadow-blue-900/20 transition-all">
+                    <h3 className="text-xl font-semibold mb-2 text-white">Enterprise</h3>
+                    <div className="text-4xl font-bold mb-2 text-blue-400">$900<span className="text-base font-medium text-gray-400">/per month</span></div>
+                    <ul className="text-gray-300 text-sm space-y-3 mb-8 mt-4">
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Everything in Professional</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Unlimited API calls</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Dedicated account manager</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Custom integrations and SLA</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> 24/7 premium support</li>
+                    </ul>
+                    <button className="mt-auto w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-all">Get Started →</button>
+                  </div>
+                  {/* Starter Annually */}
+                  <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8 flex flex-col shadow-lg hover:shadow-blue-900/20 transition-all">
+                    <h3 className="text-xl font-semibold mb-2 text-white">Starter</h3>
+                    <div className="text-4xl font-bold mb-2 text-blue-400">$329<span className="text-base font-medium text-gray-400">/per month</span></div>
+                    <ul className="text-gray-300 text-sm space-y-3 mb-8 mt-4">
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Access to core AI tools</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Up to 5,000 API calls/month</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Basic analytics dashboard</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Advanced analytics and reporting</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Dedicated account manager</li>
+                    </ul>
+                    <button className="mt-auto w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-all">Get Started →</button>
+                  </div>
+                  {/* Professional Annually */}
+                  <div className="bg-gray-800 border border-gray-700 rounded-2xl p-8 flex flex-col shadow-lg hover:shadow-blue-900/20 transition-all">
+                    <h3 className="text-xl font-semibold mb-2 text-white">Professional</h3>
+                    <div className="text-4xl font-bold mb-2 text-blue-400">$529<span className="text-base font-medium text-gray-400">/per month</span></div>
+                    <ul className="text-gray-300 text-sm space-y-3 mb-8 mt-4">
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Everything in Starter</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Up to 50,000 API calls/month</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Advanced analytics and reporting</li>
+                      <li className="flex items-center gap-2"><span className="text-blue-400">●</span> Priority email and chat support</li>
+                    </ul>
+                    <button className="mt-auto w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold transition-all">Get Started →</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </section>

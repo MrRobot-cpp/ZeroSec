@@ -1,0 +1,52 @@
+# Canary Watermarking Feature - Dependencies
+# Subset of main requirements.txt specific to canary functionality
+
+## CORE REQUIREMENTS (Must Have)
+
+# PDF Processing
+PyPDF2>=3.0.1
+
+# DOCX Processing
+python-docx>=1.1.0
+
+# Core Flask (from main requirements)
+Flask==3.0.3
+Flask-Cors==4.0.0
+Werkzeug>=2.3.0  # For secure_filename function
+
+# Regex for token detection
+regex>=2023.12.25
+
+# HTTP client for webhook integration
+requests>=2.32.3
+
+# Standard library (no install needed):
+# - uuid (canary ID generation)
+# - hashlib (SHA-256 hashing)
+# - datetime (timestamp metadata)
+# - json (metadata serialization)
+# - pathlib (file paths)
+# - os (file operations)
+
+
+## OPTIONAL - ENHANCED FEATURES
+
+# For image-based steganographic watermarks
+# pillow>=10.0.0
+
+# For cryptographic canary tokens
+# PyCryptodome>=3.18.0
+
+# For alert notifications
+# slackclient>=2.9.4          # Slack alerts
+# boto3>=1.34.0               # AWS SNS/SQS
+# sendgrid>=6.11.0            # Email alerts
+
+# For structured logging
+# python-json-logger>=2.0.7
+
+
+## VERIFY INSTALLATION
+
+# After installing, verify with:
+# python -c "from PyPDF2 import PdfReader; from docx import Document; print('Canary dependencies OK')"

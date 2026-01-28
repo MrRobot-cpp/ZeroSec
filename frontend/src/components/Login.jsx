@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import authService from "../services/authService";
 
 export default function Login() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -15,10 +16,9 @@ export default function Login() {
   const MAX_LOGIN_ATTEMPTS = 5;
   const LOCKOUT_TIME = 300000; // 5 minutes in milliseconds
 
-  // Enhanced email validation
-  const validateEmail = (email) => {
-    const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    return emailRegex.test(email);
+  // Enhanced username validation
+  const validateUsername = (username) => {
+    return username.length >= 3 && username.length <= 50 && /^[a-zA-Z0-9_.-]+$/.test(username);
   };
 
   // Check for common SQL injection patterns
@@ -71,25 +71,25 @@ export default function Login() {
     }
 
     // Sanitize inputs
-    const sanitizedEmail = sanitizeInput(email);
+    const sanitizedUsername = sanitizeInput(username);
     const sanitizedPassword = sanitizeInput(password);
 
     // Security validations
-    if (containsSQLInjection(sanitizedEmail) || containsSQLInjection(sanitizedPassword)) {
+    if (containsSQLInjection(sanitizedUsername) || containsSQLInjection(sanitizedPassword)) {
       setError("Invalid input detected. Please enter valid credentials.");
       setLoginAttempts(prev => prev + 1);
       return;
     }
 
-    if (containsXSS(sanitizedEmail) || containsXSS(sanitizedPassword)) {
+    if (containsXSS(sanitizedUsername) || containsXSS(sanitizedPassword)) {
       setError("Invalid input detected. Please enter valid credentials.");
       setLoginAttempts(prev => prev + 1);
       return;
     }
 
-    // Email validation
-    if (!validateEmail(sanitizedEmail)) {
-      setError("Please enter a valid email address");
+    // Username validation
+    if (!validateUsername(sanitizedUsername)) {
+      setError("Please enter a valid username (3-50 characters, alphanumeric, dots, dashes, underscores)");
       return;
     }
 
@@ -107,42 +107,12 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      // TODO: Implement actual authentication logic with HTTPS
-      // Security recommendations:
-      // 1. Use HTTPS for all API calls
-      // 2. Implement rate limiting on backend
-      // 3. Use secure authentication tokens (JWT with HttpOnly cookies)
-      // 4. Hash passwords with bcrypt/argon2 on backend
-      // 5. Implement CSRF protection
-      // 6. Add 2FA for additional security
-      // 7. Log all login attempts for security monitoring
-
-      // Example secure API call:
-      // const response = await axios.post('/api/auth/login',
-      //   { email: sanitizedEmail, password: sanitizedPassword },
-      //   {
-      //     withCredentials: true, // For cookies
-      //     headers: { 'X-CSRF-Token': csrfToken }
-      //   }
-      // );
-
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // For demo purposes - simulate failed login
-      const isSuccess = Math.random() > 0.5;
-
-      if (!isSuccess) {
-        throw new Error("Invalid credentials");
-      }
+      // Call actual backend authentication
+      await authService.login(sanitizedUsername, sanitizedPassword);
 
       // Reset login attempts on success
       setLoginAttempts(0);
 
-      // TODO: Handle successful login
-      // 1. Store auth token securely (HttpOnly cookie preferred)
-      // 2. Redirect to dashboard
-      // 3. Set up session timeout
       console.log("Login successful");
 
       // Redirect to dashboard after successful login
@@ -164,7 +134,7 @@ export default function Login() {
         }, LOCKOUT_TIME);
       } else {
         setError(
-          `Invalid email or password. ${MAX_LOGIN_ATTEMPTS - newAttempts} attempts remaining.`
+          err.message || `Invalid username or password. ${MAX_LOGIN_ATTEMPTS - newAttempts} attempts remaining.`
         );
       }
     } finally {
@@ -215,33 +185,33 @@ export default function Login() {
 
           {/* Login Form */}
           <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
-            {/* Email Input */}
+            {/* Username Input */}
             <div>
               <label
-                htmlFor="email"
+                htmlFor="username"
                 className="block text-sm font-medium text-gray-300 mb-2"
               >
-                Email
+                Username
               </label>
               <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
-                autoComplete="email"
-                maxLength={255}
+                autoComplete="username"
+                maxLength={50}
                 className="w-full px-4 py-3 bg-gray-900 text-white rounded-md border border-gray-700
                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                          transition-all"
-                placeholder="you@example.com"
+                placeholder="your_username"
                 disabled={isLoading || isLocked}
               />
-              {email && (
+              {username && (
                 <p className={`mt-1 text-xs ${
-                  validateEmail(email) ? 'text-green-400' : 'text-gray-400'
+                  validateUsername(username) ? 'text-green-400' : 'text-gray-400'
                 }`}>
-                  {validateEmail(email) ? '✓ Valid email format' : 'Please enter a valid email address'}
+                  {validateUsername(username) ? '✓ Valid username' : 'Username must be 3-50 characters (letters, numbers, dots, dashes, underscores)'}
                 </p>
               )}
             </div>

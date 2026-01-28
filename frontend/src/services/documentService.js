@@ -1,14 +1,29 @@
 // Document API Service
 // Handles communication with the backend document endpoints
 
+import apiClient from './apiClient';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5200";
 
 /**
  * Get all documents
+ * Uses legacy endpoint for compatibility
  * @returns {Promise<Array>} - Array of documents with metadata
  */
 export async function getDocuments() {
   try {
+    // Try authenticated endpoint first
+    try {
+      const response = await apiClient.get('/api/documents');
+      if (response.ok) {
+        const data = await response.json();
+        return data.documents || [];
+      }
+    } catch (authError) {
+      console.log('Trying legacy endpoint without auth...');
+    }
+
+    // Fallback to legacy endpoint (no auth required)
     const response = await fetch(`${API_BASE_URL}/documents`, {
       method: "GET",
       headers: {
@@ -41,10 +56,21 @@ export async function uploadDocument(file, sensitivity = "medium") {
     formData.append("file", file);
     formData.append("sensitivity", sensitivity);
 
+    // Try authenticated endpoint first
+    try {
+      const response = await apiClient.post('/api/documents/upload', formData);
+      if (response.ok) {
+        const data = await response.json();
+        return data;
+      }
+    } catch (authError) {
+      console.log('Auth upload failed, trying legacy...');
+    }
+
+    // Fallback to legacy endpoint
     const response = await fetch(`${API_BASE_URL}/documents/upload`, {
       method: "POST",
       body: formData,
-      // Don't set Content-Type header - browser will set it with boundary for multipart/form-data
     });
 
     if (!response.ok) {
@@ -62,11 +88,12 @@ export async function uploadDocument(file, sensitivity = "medium") {
 
 /**
  * Delete a document
- * @param {string} filename - The name of the file to delete
+ * @param {string} filename - The name/ID of the file to delete
  * @returns {Promise<Object>} - Deletion response
  */
 export async function deleteDocument(filename) {
   try {
+    // Use legacy endpoint (accepts filename)
     const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(filename)}`, {
       method: "DELETE",
       headers: {

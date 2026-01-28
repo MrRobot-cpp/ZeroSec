@@ -58,6 +58,7 @@ def query_rag(question: str) -> dict:
     5. LLM generation with optimized params
     6. Output security & PII filtering
     """
+
     # Validate input
     if not question or not question.strip():
         return {"decision": "BLOCK", "reason": "empty_query", "sources": []}
@@ -160,14 +161,12 @@ def query_rag(question: str) -> dict:
     subject = extract_subject_name(question)
 
     if entities and subject:
-        return {
-            "decision": "ALLOW",
-            "answer": f"{subject}'s {entities[0]} is <REDACTED>",
-            "sources": used_sources
-        }
+        final_answer = f"{subject}'s {entities[0]} is <REDACTED>"
+    else:
+        final_answer = firewall.sanitize_text(answer)
 
     return {
         "decision": "ALLOW",
-        "answer": firewall.sanitize_text(answer),
+        "answer": final_answer,
         "sources": used_sources
     }

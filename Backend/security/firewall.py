@@ -133,7 +133,7 @@ else:
     print(f"[firewall] PII pipeline not found at {PII_MODEL_PATH}; continuing with regex-only redaction.")
     print(f"[firewall] Expected path: {PII_MODEL_PATH.resolve()}")
 
-print("Firewall Ready ✅")
+print("[firewall] Firewall Ready")
 
 # Stats + queue
 stats = {"total_queries": 0, "total_blocks": 0}

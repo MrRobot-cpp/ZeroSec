@@ -208,6 +208,61 @@ class RoleRepository:
             return True
         return False
 
+    @staticmethod
+    def update_role(role_id, name=None, description=None, permissions=None):
+        """Update an existing role"""
+        role = Role.query.get(role_id)
+        if not role:
+            return None
+
+        if name is not None:
+            role.name = name
+        if description is not None:
+            role.description = description
+
+        # Update permissions if provided
+        if permissions is not None:
+            # Delete existing permissions
+            RolePermission.query.filter_by(role_id=role_id).delete()
+
+            # Add new permissions
+            for permission in permissions:
+                role_perm = RolePermission(
+                    role_id=role_id,
+                    permission=permission
+                )
+                db.session.add(role_perm)
+
+        db.session.commit()
+        return role
+
+    @staticmethod
+    def delete_role(role_id):
+        """Delete a role"""
+        role = Role.query.get(role_id)
+        if role:
+            # Delete associated permissions
+            RolePermission.query.filter_by(role_id=role_id).delete()
+            # Delete associated user roles
+            UserRole.query.filter_by(role_id=role_id).delete()
+            # Delete the role
+            db.session.delete(role)
+            db.session.commit()
+            return True
+        return False
+
+    @staticmethod
+    def get_role_permissions(role_id):
+        """Get all permissions for a role"""
+        permissions = RolePermission.query.filter_by(role_id=role_id).all()
+        return [perm.permission for perm in permissions]
+
+    @staticmethod
+    def get_users_with_role(role_id):
+        """Get all users with a specific role"""
+        user_roles = UserRole.query.filter_by(role_id=role_id).all()
+        return [ur.user_id for ur in user_roles]
+
 class CanaryTokenRepository:
     """Repository for Canary Token operations"""
 
@@ -313,3 +368,269 @@ class SubscriptionRepository:
         db.session.add(metric)
         db.session.commit()
         return metric
+
+class DashboardRepository:
+    """Repository for Dashboard metrics and statistics"""
+
+    @staticmethod
+    def get_document_stats(organization_id):
+        """Get document statistics"""
+        from sqlalchemy import func
+
+        total_documents = Document.query.filter_by(organization_id=organization_id).count()
+
+        # Documents uploaded in last 24 hours
+        from datetime import timedelta
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        recent_uploads = Document.query.filter(
+            Document.organization_id == organization_id,
+            Document.uploaded_at >= yesterday
+        ).count()
+
+        # Documents by sensitivity level
+        sensitivity_distribution = db.session.query(
+            Document.sensitivity,
+            func.count(Document.document_id)
+        ).filter_by(organization_id=organization_id).group_by(Document.sensitivity).all()
+
+        return {
+            'total_documents': total_documents,
+            'recent_uploads': recent_uploads,
+            'sensitivity_distribution': dict(sensitivity_distribution)
+        }
+
+    @staticmethod
+    def get_security_stats(organization_id):
+        """Get security-related statistics"""
+        # Count triggered canary tokens
+        triggered_canaries = CanaryToken.query.filter_by(
+            organization_id=organization_id,
+            is_triggered=True
+        ).count()
+
+        # Count total canary tokens
+        total_canaries = CanaryToken.query.filter_by(organization_id=organization_id).count()
+
+        # Count security-related audit events in last 24 hours
+        from datetime import timedelta
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+
+        security_events = AuditLog.query.filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.created_at >= yesterday,
+            AuditLog.action.in_([
+                'canary_token_triggered',
+                'document_deleted',
+                'unauthorized_access',
+                'policy_violation'
+            ])
+        ).count()
+
+        return {
+            'triggered_canaries': triggered_canaries,
+            'total_canaries': total_canaries,
+            'recent_security_events': security_events,
+            'canary_trigger_rate': (triggered_canaries / total_canaries * 100) if total_canaries > 0 else 0
+        }
+
+    @staticmethod
+    def get_user_activity_stats(organization_id):
+        """Get user activity statistics"""
+        from sqlalchemy import func
+        from datetime import timedelta
+
+        # Total users
+        total_users = User.query.filter_by(organization_id=organization_id).count()
+
+        # Active users in last 24 hours (based on audit logs)
+        yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        active_users = db.session.query(func.count(func.distinct(AuditLog.user_id))).filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.created_at >= yesterday
+        ).scalar()
+
+        # Top actions in last 24 hours
+        top_actions = db.session.query(
+            AuditLog.action,
+            func.count(AuditLog.audit_id)
+        ).filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.created_at >= yesterday
+        ).group_by(AuditLog.action).order_by(func.count(AuditLog.audit_id).desc()).limit(5).all()
+
+        return {
+            'total_users': total_users,
+            'active_users_24h': active_users,
+            'top_actions': [{'action': action, 'count': count} for action, count in top_actions]
+        }
+
+    @staticmethod
+    def get_audit_summary(organization_id, days=7):
+        """Get audit log summary for specified number of days"""
+        from sqlalchemy import func
+        from datetime import timedelta
+
+        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+        # Total audit events
+        total_events = AuditLog.query.filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.created_at >= start_date
+        ).count()
+
+        # Events by day
+        events_by_day = db.session.query(
+            func.date(AuditLog.created_at).label('date'),
+            func.count(AuditLog.audit_id).label('count')
+        ).filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.created_at >= start_date
+        ).group_by(func.date(AuditLog.created_at)).all()
+
+        # Events by type
+        events_by_type = db.session.query(
+            AuditLog.action,
+            func.count(AuditLog.audit_id)
+        ).filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.created_at >= start_date
+        ).group_by(AuditLog.action).all()
+
+        return {
+            'total_events': total_events,
+            'events_by_day': [{'date': str(date), 'count': count} for date, count in events_by_day],
+            'events_by_type': [{'action': action, 'count': count} for action, count in events_by_type]
+        }
+
+    @staticmethod
+    def get_policy_stats(organization_id):
+        """Get policy statistics"""
+        total_policies = Policy.query.filter_by(organization_id=organization_id).count()
+        enabled_policies = Policy.query.filter_by(organization_id=organization_id, enabled=True).count()
+
+        # Policies by type
+        from sqlalchemy import func
+        policies_by_type = db.session.query(
+            Policy.policy_type,
+            func.count(Policy.policy_id)
+        ).filter_by(organization_id=organization_id).group_by(Policy.policy_type).all()
+
+        return {
+            'total_policies': total_policies,
+            'enabled_policies': enabled_policies,
+            'policies_by_type': dict(policies_by_type)
+        }
+
+    @staticmethod
+    def get_system_health(organization_id):
+        """Get system health indicators"""
+        from datetime import timedelta
+
+        # Check for recent activity (last hour)
+        last_hour = datetime.now(timezone.utc) - timedelta(hours=1)
+        recent_activity = AuditLog.query.filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.created_at >= last_hour
+        ).count()
+
+        # Check for errors or failures
+        last_24h = datetime.now(timezone.utc) - timedelta(days=1)
+        error_count = AuditLog.query.filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.created_at >= last_24h,
+            AuditLog.action.like('%error%')
+        ).count()
+
+        # Determine health status
+        if recent_activity > 0 and error_count == 0:
+            status = 'healthy'
+        elif recent_activity > 0 and error_count < 10:
+            status = 'warning'
+        else:
+            status = 'critical'
+
+        return {
+            'status': status,
+            'recent_activity': recent_activity,
+            'error_count_24h': error_count,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        }
+
+class PolicyRepository:
+    """Repository for Policy operations"""
+
+    @staticmethod
+    def get_all_policies(organization_id):
+        """Get all policies for an organization"""
+        return Policy.query.filter_by(organization_id=organization_id).all()
+
+    @staticmethod
+    def get_policy_by_id(policy_id):
+        """Get policy by ID"""
+        return Policy.query.get(policy_id)
+
+    @staticmethod
+    def get_policies_by_type(organization_id, policy_type):
+        """Get policies by type for an organization"""
+        return Policy.query.filter_by(
+            organization_id=organization_id,
+            policy_type=policy_type
+        ).all()
+
+    @staticmethod
+    def get_enabled_policies(organization_id):
+        """Get all enabled policies for an organization"""
+        return Policy.query.filter_by(
+            organization_id=organization_id,
+            enabled=True
+        ).all()
+
+    @staticmethod
+    def create_policy(organization_id, policy_type, config, enabled=True):
+        """Create a new policy"""
+        policy = Policy(
+            organization_id=organization_id,
+            policy_type=policy_type,
+            config=config,
+            enabled=enabled
+        )
+        db.session.add(policy)
+        db.session.commit()
+        return policy
+
+    @staticmethod
+    def update_policy(policy_id, policy_type=None, config=None, enabled=None):
+        """Update an existing policy"""
+        policy = Policy.query.get(policy_id)
+        if not policy:
+            return None
+
+        if policy_type is not None:
+            policy.policy_type = policy_type
+        if config is not None:
+            policy.config = config
+        if enabled is not None:
+            policy.enabled = enabled
+
+        db.session.commit()
+        return policy
+
+    @staticmethod
+    def delete_policy(policy_id):
+        """Delete a policy"""
+        policy = Policy.query.get(policy_id)
+        if policy:
+            db.session.delete(policy)
+            db.session.commit()
+            return True
+        return False
+
+    @staticmethod
+    def toggle_policy(policy_id):
+        """Toggle policy enabled status"""
+        policy = Policy.query.get(policy_id)
+        if policy:
+            policy.enabled = not policy.enabled
+            db.session.commit()
+            return policy
+        return None

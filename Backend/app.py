@@ -15,6 +15,9 @@ from backend.api.documents import documents_bp
 from backend.api.canary import canary_bp
 from backend.api.auth import auth_bp
 from backend.api.logs import logs_bp
+from backend.api.policies import policies_bp
+from backend.api.roles import roles_bp
+from backend.api.dashboard import dashboard_bp
 
 # Get environment
 env = os.getenv('FLASK_ENV', 'development')
@@ -36,9 +39,13 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(documents_bp)
 app.register_blueprint(canary_bp)
 app.register_blueprint(logs_bp)
+app.register_blueprint(policies_bp)
+app.register_blueprint(roles_bp)
+app.register_blueprint(dashboard_bp)
 
 @app.route("/query", methods=["POST"])
 def query_route():
+    """Query RAG system"""
     data = request.get_json(force=True)
     question = data.get("question", "")
 
@@ -57,7 +64,7 @@ def logs():
         # Get audit logs
         audit_logs = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(100).all()
 
-        # Combine with firewall logs
+        # Get firewall logs
         combined_logs = get_logs()
 
         # Add audit logs to the response
@@ -75,7 +82,7 @@ def logs():
             })
 
         return jsonify(combined_logs)
-    except Exception as e:
+    except Exception:
         # Fallback to original firewall logs only
         return jsonify(get_logs())
 

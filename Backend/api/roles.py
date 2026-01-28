@@ -15,8 +15,9 @@ roles_bp = Blueprint("roles_bp", __name__)
 @jwt_required()
 def get_roles():
     """Get all roles for the user's organization"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         roles = RoleRepository.get_roles_by_organization(organization_id)
@@ -40,8 +41,9 @@ def get_roles():
 @jwt_required()
 def get_role(role_id):
     """Get a specific role by ID"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         role = RoleRepository.get_role_by_id(role_id)
@@ -73,9 +75,10 @@ def get_role(role_id):
 @require_permission('role_manage')
 def create_role():
     """Create a new role"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
-    user_id = current_user.get('user_id')
+    from flask_jwt_extended import get_jwt
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         data = request.get_json()
@@ -138,9 +141,10 @@ def create_role():
 @require_permission('role_manage')
 def update_role(role_id):
     """Update an existing role"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
-    user_id = current_user.get('user_id')
+    from flask_jwt_extended import get_jwt
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         # Verify role exists and belongs to organization
@@ -208,9 +212,10 @@ def update_role(role_id):
 @require_permission('role_manage')
 def delete_role(role_id):
     """Delete a role"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
-    user_id = current_user.get('user_id')
+    from flask_jwt_extended import get_jwt
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         # Verify role exists and belongs to organization
@@ -261,8 +266,9 @@ def delete_role(role_id):
 @require_permission('role_manage')
 def assign_role_to_user(role_id, user_id):
     """Assign a role to a user"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
     current_user_id = current_user.get('user_id')
 
     try:
@@ -312,8 +318,9 @@ def assign_role_to_user(role_id, user_id):
 @require_permission('role_manage')
 def remove_role_from_user(role_id, user_id):
     """Remove a role from a user"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
     current_user_id = current_user.get('user_id')
 
     try:

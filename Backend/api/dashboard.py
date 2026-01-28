@@ -13,8 +13,9 @@ dashboard_bp = Blueprint("dashboard_bp", __name__)
 @jwt_required()
 def get_dashboard_overview():
     """Get complete dashboard overview with all metrics"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         # Gather all metrics
@@ -42,8 +43,9 @@ def get_dashboard_overview():
 @jwt_required()
 def get_document_metrics():
     """Get document-specific metrics"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         stats = DashboardRepository.get_document_stats(organization_id)
@@ -57,8 +59,9 @@ def get_document_metrics():
 @jwt_required()
 def get_security_metrics():
     """Get security-specific metrics"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         stats = DashboardRepository.get_security_stats(organization_id)
@@ -72,8 +75,9 @@ def get_security_metrics():
 @jwt_required()
 def get_user_metrics():
     """Get user activity metrics"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         stats = DashboardRepository.get_user_activity_stats(organization_id)
@@ -87,8 +91,9 @@ def get_user_metrics():
 @jwt_required()
 def get_audit_metrics():
     """Get audit log summary"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     # Get optional days parameter (default 7)
     days = request.args.get('days', 7, type=int)
@@ -105,8 +110,9 @@ def get_audit_metrics():
 @jwt_required()
 def get_policy_metrics():
     """Get policy statistics"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         stats = DashboardRepository.get_policy_stats(organization_id)
@@ -120,8 +126,9 @@ def get_policy_metrics():
 @jwt_required()
 def get_system_health():
     """Get system health status"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         health = DashboardRepository.get_system_health(organization_id)

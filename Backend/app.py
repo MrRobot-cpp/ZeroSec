@@ -18,6 +18,8 @@ from backend.api.logs import logs_bp
 from backend.api.policies import policies_bp
 from backend.api.roles import roles_bp
 from backend.api.dashboard import dashboard_bp
+from backend.api.subscriptions import subscriptions_bp
+from backend.api.metrics import metrics_bp
 
 # Get environment
 env = os.getenv('FLASK_ENV', 'development')
@@ -42,6 +44,8 @@ app.register_blueprint(logs_bp)
 app.register_blueprint(policies_bp)
 app.register_blueprint(roles_bp)
 app.register_blueprint(dashboard_bp)
+app.register_blueprint(subscriptions_bp)
+app.register_blueprint(metrics_bp)
 
 @app.route("/query", methods=["POST"])
 def query_route():

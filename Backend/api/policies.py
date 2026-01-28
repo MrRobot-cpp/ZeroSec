@@ -15,8 +15,9 @@ policies_bp = Blueprint("policies_bp", __name__)
 @jwt_required()
 def get_policies():
     """Get all policies for the user's organization"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         # Get optional query parameters
@@ -47,8 +48,9 @@ def get_policies():
 @jwt_required()
 def get_policy(policy_id):
     """Get a specific policy by ID"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         policy = PolicyRepository.get_policy_by_id(policy_id)
@@ -78,9 +80,10 @@ def get_policy(policy_id):
 @require_permission('policy_manage')
 def create_policy():
     """Create a new policy"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
-    user_id = current_user.get('user_id')
+    from flask_jwt_extended import get_jwt
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         data = request.get_json()
@@ -142,9 +145,10 @@ def create_policy():
 @require_permission('policy_manage')
 def update_policy(policy_id):
     """Update an existing policy"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
-    user_id = current_user.get('user_id')
+    from flask_jwt_extended import get_jwt
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         # Verify policy exists and belongs to organization
@@ -205,9 +209,10 @@ def update_policy(policy_id):
 @require_permission('policy_manage')
 def delete_policy(policy_id):
     """Delete a policy"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
-    user_id = current_user.get('user_id')
+    from flask_jwt_extended import get_jwt
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         # Verify policy exists and belongs to organization
@@ -247,9 +252,10 @@ def delete_policy(policy_id):
 @require_permission('policy_manage')
 def toggle_policy(policy_id):
     """Toggle policy enabled/disabled status"""
-    current_user = get_jwt_identity()
-    organization_id = current_user.get('organization_id')
-    user_id = current_user.get('user_id')
+    from flask_jwt_extended import get_jwt
+    user_id = get_jwt_identity()
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
 
     try:
         # Verify policy exists and belongs to organization

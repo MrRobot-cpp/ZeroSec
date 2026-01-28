@@ -43,8 +43,10 @@ class AuthService {
 
   /**
    * Register new user
+   * @param {Object} userData - User registration data
+   * @param {boolean} autoLogin - Whether to automatically login after registration (default: true)
    */
-  async register(userData) {
+  async register(userData, autoLogin = true) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
@@ -60,8 +62,8 @@ class AuthService {
         throw new Error(data.error || 'Registration failed');
       }
 
-      // Auto-login after successful registration
-      if (userData.password) {
+      // Auto-login after successful registration (if enabled)
+      if (autoLogin && userData.password) {
         await this.login(userData.username, userData.password);
       }
 
@@ -243,3 +245,13 @@ class AuthService {
 // Export singleton instance
 const authService = new AuthService();
 export default authService;
+
+// Named exports for convenience
+export const login = (username, password) => authService.login(username, password);
+export const register = (userData, autoLogin = true) => authService.register(userData, autoLogin);
+export const logout = () => authService.logout();
+export const getCurrentUser = () => authService.getCurrentUser();
+export const changePassword = (currentPassword, newPassword) => authService.changePassword(currentPassword, newPassword);
+export const isAuthenticated = () => authService.isAuthenticated();
+export const hasPermission = (permission) => authService.hasPermission(permission);
+export const hasRole = (role) => authService.hasRole(role);

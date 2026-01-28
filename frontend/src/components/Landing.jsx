@@ -154,7 +154,7 @@ export default function Landing() {
                 Sign In
               </Link>
               <Link
-                href="/signup"
+                href="/onboarding"
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
               >
                 Get Started
@@ -220,7 +220,7 @@ export default function Landing() {
                 Sign In
               </Link>
               <Link
-                href="/signup"
+                href="/onboarding"
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-md font-medium text-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
                 onClick={() => setMobileMenuOpen(false)}
               >
@@ -279,7 +279,7 @@ export default function Landing() {
             {/* CTA Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
-                href="/signup"
+                href="/onboarding"
                 className="w-full sm:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold text-lg transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
               >
                 Start Free Trial
@@ -438,7 +438,7 @@ export default function Landing() {
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <Link
-                  href="/signup"
+                  href="/onboarding"
                   className="w-full sm:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold text-lg transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
                 >
                   Get Started Free

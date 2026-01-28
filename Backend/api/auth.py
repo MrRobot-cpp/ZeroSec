@@ -10,7 +10,7 @@ from flask_jwt_extended import (
 from datetime import datetime, timezone
 
 from backend.database.db import db, bcrypt
-from backend.database.models import User, Organization, Department, AuditLog, UserRole, Role
+from backend.database.models import User, Organization, Department, AuditLog, UserRole, Role, Subscription, Plan
 from backend.utils.audit import log_audit
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
@@ -36,7 +36,9 @@ def register():
 
         # Get or create organization
         org = Organization.query.filter_by(name=data['organization_name']).first()
+        is_new_org = False
         if not org:
+            is_new_org = True
             org = Organization(
                 name=data['organization_name'],
                 created_at=datetime.now(timezone.utc)
@@ -52,6 +54,33 @@ def register():
             )
             db.session.add(default_dept)
             db.session.flush()
+
+            # Create subscription if plan_id is provided
+            plan_id = data.get('planId') or data.get('plan_id')
+            if plan_id:
+                # Verify plan exists
+                plan = Plan.query.get(plan_id)
+                if plan:
+                    subscription = Subscription(
+                        organization_id=org.organization_id,
+                        plan_id=plan_id,
+                        status='Active',
+                        start_date=datetime.now(timezone.utc)
+                    )
+                    db.session.add(subscription)
+                    db.session.flush()
+            else:
+                # Default to Free plan (plan_id = 1)
+                free_plan = Plan.query.filter_by(name='Free').first()
+                if free_plan:
+                    subscription = Subscription(
+                        organization_id=org.organization_id,
+                        plan_id=free_plan.plan_id,
+                        status='Active',
+                        start_date=datetime.now(timezone.utc)
+                    )
+                    db.session.add(subscription)
+                    db.session.flush()
 
         # Get default department
         dept = Department.query.filter_by(
@@ -74,18 +103,43 @@ def register():
         db.session.add(user)
         db.session.flush()
 
-        # Assign default "User" role
-        default_role = Role.query.filter_by(
-            organization_id=org.organization_id,
-            name="User"
-        ).first()
+        # Assign role based on whether this is the first user in the organization
+        # First user gets "Security Admin" role, subsequent users get "User" role
+        is_first_user = is_new_org or User.query.filter_by(organization_id=org.organization_id).count() == 1
 
-        if default_role:
-            user_role = UserRole(
-                user_id=user.user_id,
-                role_id=default_role.role_id
-            )
-            db.session.add(user_role)
+        if is_first_user:
+            # Assign "Security Admin" or "Super Admin" role to first user
+            admin_role = Role.query.filter_by(
+                organization_id=org.organization_id,
+                name="Super Admin"
+            ).first()
+
+            # Fallback to Admin if Super Admin doesn't exist
+            if not admin_role:
+                admin_role = Role.query.filter_by(
+                    organization_id=org.organization_id,
+                    name="Admin"
+                ).first()
+
+            if admin_role:
+                user_role = UserRole(
+                    user_id=user.user_id,
+                    role_id=admin_role.role_id
+                )
+                db.session.add(user_role)
+        else:
+            # Assign default "User" role to subsequent users
+            default_role = Role.query.filter_by(
+                organization_id=org.organization_id,
+                name="User"
+            ).first()
+
+            if default_role:
+                user_role = UserRole(
+                    user_id=user.user_id,
+                    role_id=default_role.role_id
+                )
+                db.session.add(user_role)
 
         db.session.commit()
 
@@ -99,13 +153,27 @@ def register():
             metadata={'username': user.username, 'email': user.email}
         )
 
+        # Get subscription info if exists
+        subscription_info = None
+        subscription = Subscription.query.filter_by(
+            organization_id=org.organization_id,
+            status='Active'
+        ).first()
+        if subscription:
+            subscription_info = {
+                'plan_name': subscription.plan.name,
+                'plan_id': subscription.plan.plan_id
+            }
+
         return jsonify({
             'message': 'User registered successfully',
             'user': {
                 'user_id': user.user_id,
                 'username': user.username,
                 'email': user.email,
-                'organization': org.name
+                'organization': org.name,
+                'is_first_user': is_first_user,
+                'subscription': subscription_info
             }
         }), 201
 

@@ -35,11 +35,18 @@ logs/
 
 # ---- Security / DevOps ----
 .env
+.env.local
 *.pem
 *.crt
 *.key
 docker-compose.override.yml
 docker-compose.debug.yml
+
+# ---- Database ----
+*.db
+*.sqlite
+*.sqlite3
+backend/data/docs_metadata.json
 
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
@@ -49,5 +56,10 @@ models/
 nul
 
 .claude
+<<<<<<< HEAD
 *.db
 *.md
+=======
+
+*md
+>>>>>>> 0e6aef68f7cf98b9b8659096b995b5afa160fed2

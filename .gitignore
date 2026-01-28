@@ -49,4 +49,5 @@ models/
 nul
 
 .claude
-
+*.db
+*.md

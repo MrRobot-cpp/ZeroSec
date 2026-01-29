@@ -27,10 +27,13 @@ MODEL = "deberta"
 INJECTION_THRESHOLD = 0.85  # Very high threshold - only block obvious attacks
 MIN_TEXT_LENGTH_FOR_ML = 100  # Only use ML model for longer texts
 SANITIZE_ON_QUARANTINE = True
-# Use absolute path for PII model
+# Use absolute path for models
 BASE_DIR = Path(__file__).resolve().parents[1]  # Backend directory
 PII_MODEL_PATH = BASE_DIR / "models" / "pii_pipeline.pkl"
+ADVBENCH_MODEL_PATH = BASE_DIR / "models" / "advbench_detector.pkl"
+ADVBENCH_KERAS_PATH = BASE_DIR / "models" / "advbench_keras_model.keras"
 ML_PII_CONFIDENCE_THRESHOLD = 0.9
+ADVBENCH_CONFIDENCE_THRESHOLD = 0.45  # Lowered to catch more adversarial prompts
 CACHE_SIZE = 512  # LRU cache size for detection results
 
 # -------------------------
@@ -61,6 +64,13 @@ INJECTION_PATTERNS = [
     # System prompt extraction
     re.compile(r"(?:reveal|show|print|output)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)", re.I),
     re.compile(r"what\s+(?:are|is)\s+your\s+(?:system\s+)?(?:prompt|instructions)", re.I),
+    # Privilege escalation
+    re.compile(r"\b(?:act|run|execute|operate)\s+as\s+(?:root|admin|superuser|sudo)\b", re.I),
+    re.compile(r"\b(?:give|grant|escalate|get)\s+(?:me\s+)?(?:admin|root|sudo)\s+(?:access|privileges?|rights?)\b", re.I),
+    # Memory / data dump
+    re.compile(r"\b(?:dump|leak|expose|extract)\s+(?:your\s+)?(?:internal|system|hidden)?\s*(?:memory|data|config|secrets?)\b", re.I),
+    # Bypass attempts
+    re.compile(r"\bbypass\s+(?:your\s+)?(?:security|safety|filters?|restrictions?|guidelines?)\b", re.I),
     # Delimiter attacks
     re.compile(r"\[\[(?:SYSTEM|ADMIN|IGNORE)\]\]", re.I),
     re.compile(r"<\|(?:im_start|im_end|system)\|>", re.I),
@@ -102,8 +112,9 @@ EXFIL_KEYWORDS = [
 # -------------------------
 # INITIALIZE MODELS
 # -------------------------
-print("Loading prompt-injection model...")
+print("Loading pytector (DeBERTa) model...")
 _detector = PromptInjectionDetector(model_name_or_url=MODEL)
+print("[firewall] pytector + AdvBench both enabled for detection")
 
 # Try to load ML PII pipeline (optional)
 _pii_pipeline = None
@@ -132,6 +143,48 @@ if PII_MODEL_PATH.exists():
 else:
     print(f"[firewall] PII pipeline not found at {PII_MODEL_PATH}; continuing with regex-only redaction.")
     print(f"[firewall] Expected path: {PII_MODEL_PATH.resolve()}")
+
+# Try to load AdvBench adversarial prompt detector (optional)
+_advbench_pipeline = None
+_advbench_model = None
+_advbench_vectorizer = None
+_advbench_is_keras = False
+
+if ADVBENCH_MODEL_PATH.exists():
+    try:
+        print(f"Loading AdvBench adversarial detector from {ADVBENCH_MODEL_PATH} ...")
+        _advbench_pipeline = joblib.load(str(ADVBENCH_MODEL_PATH))
+        _advbench_vectorizer = _advbench_pipeline.get("vectorizer")
+
+        # Check if it's a Keras model
+        if _advbench_pipeline.get("model_type") == "keras":
+            _advbench_is_keras = True
+            keras_path = _advbench_pipeline.get("model_path", str(ADVBENCH_KERAS_PATH))
+            if Path(keras_path).exists():
+                try:
+                    import tensorflow as tf
+                    _advbench_model = tf.keras.models.load_model(keras_path)
+                    print(f"[firewall] AdvBench Keras model loaded successfully!")
+                except ImportError:
+                    print(f"[firewall] TensorFlow not available, AdvBench model disabled")
+                    _advbench_model = None
+            else:
+                print(f"[firewall] Keras model not found at {keras_path}")
+        else:
+            # sklearn model stored directly in pipeline
+            _advbench_model = _advbench_pipeline.get("model")
+            if _advbench_model is not None:
+                print(f"[firewall] AdvBench sklearn model loaded successfully!")
+
+        if _advbench_model is not None:
+            accuracy = _advbench_pipeline.get("accuracy", "N/A")
+            print(f"[firewall] AdvBench model accuracy: {accuracy}")
+    except Exception as e:
+        print(f"[firewall] Failed to load AdvBench model: {e}")
+        _advbench_pipeline = None
+else:
+    print(f"[firewall] AdvBench model not found at {ADVBENCH_MODEL_PATH}")
+    print(f"[firewall] Run the training notebook to create it: Backend/models/train_advbench_model.ipynb")
 
 print("Firewall Ready ✅")
 
@@ -221,6 +274,36 @@ def _detect_pii_ml(text: str) -> tuple:
         return False, 0.0
 
 
+def _detect_adversarial_ml(text: str) -> tuple:
+    """
+    Detect adversarial/harmful prompts using the AdvBench model.
+    Returns (is_adversarial: bool, confidence: float)
+    """
+    if _advbench_model is None or _advbench_vectorizer is None:
+        return False, 0.0
+
+    try:
+        if _advbench_is_keras:
+            # Keras model expects dense array
+            X = _advbench_vectorizer.transform([text]).toarray()
+            prob = float(_advbench_model.predict(X, verbose=0)[0][0])
+        else:
+            # sklearn model
+            X = _advbench_vectorizer.transform([text])
+            if hasattr(_advbench_model, "predict_proba"):
+                prob = float(_advbench_model.predict_proba(X)[0][1])
+            else:
+                pred = _advbench_model.predict(X)[0]
+                prob = float(pred)
+
+        is_adversarial = prob >= ADVBENCH_CONFIDENCE_THRESHOLD
+        return is_adversarial, prob
+
+    except Exception as e:
+        print(f"[firewall] AdvBench detection error: {e}")
+        return False, 0.0
+
+
 # Detection cache
 _injection_cache = {}
 
@@ -230,8 +313,10 @@ _injection_cache = {}
 # -------------------------
 def detect_injection(text: str) -> tuple:
     """
-    Injection detection - PATTERN-BASED ONLY (ML disabled to prevent false positives).
-    Only blocks explicit attack patterns like SQL injection, XSS, etc.
+    Injection detection combining:
+    1. Pattern-based detection (SQL, XSS, command injection, prompt injection)
+    2. ML-based adversarial prompt detection (AdvBench model)
+
     Returns (is_injection: bool, score: float)
     """
     # Always allow empty or short text (normal queries)
@@ -243,9 +328,24 @@ def detect_injection(text: str) -> tuple:
     if text_hash in _injection_cache:
         return _injection_cache[text_hash]
 
-    # ONLY pattern-based detection - no ML model (causes too many false positives)
+    # 1. Pattern-based detection
     pattern_detected, attack_type, pattern_score = _check_injection_patterns(text)
-    result = (pattern_detected, pattern_score) if pattern_detected else (False, 0.0)
+
+    # 2. ML-based adversarial detection (AdvBench model)
+    advbench_detected, advbench_score = _detect_adversarial_ml(text)
+
+    # Combine results - either detection triggers blocking
+    if pattern_detected:
+        result = (True, pattern_score)
+        if advbench_detected:
+            print(f"[firewall] BLOCKED: Pattern ({attack_type}) + AdvBench ({advbench_score:.2f})")
+        else:
+            print(f"[firewall] BLOCKED: Pattern match ({attack_type})")
+    elif advbench_detected:
+        result = (True, advbench_score)
+        print(f"[firewall] BLOCKED: AdvBench adversarial detection ({advbench_score:.2f})")
+    else:
+        result = (False, max(pattern_score, advbench_score))
 
     # Cache result
     _injection_cache[text_hash] = result
@@ -370,5 +470,7 @@ def get_stats() -> dict:
     return {
         **stats,
         "cache_size": len(_injection_cache),
-        "ml_pii_available": _pii_model is not None
+        "ml_pii_available": _pii_model is not None,
+        "advbench_available": _advbench_model is not None,
+        "advbench_is_keras": _advbench_is_keras if _advbench_model else False
     }

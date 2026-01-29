@@ -27,6 +27,10 @@ MODEL = "deberta"
 INJECTION_THRESHOLD = 0.85  # Very high threshold - only block obvious attacks
 MIN_TEXT_LENGTH_FOR_ML = 100  # Only use ML model for longer texts
 SANITIZE_ON_QUARANTINE = True
+
+# Canary Tokens (must match canary_service.py)
+CANARY_TOKENS = ["zqxorin", "velmora", "kythrax"]
+
 # Use absolute path for PII model
 BASE_DIR = Path(__file__).resolve().parents[1]  # Backend directory
 PII_MODEL_PATH = BASE_DIR / "models" / "pii_pipeline.pkl"
@@ -195,6 +199,15 @@ def _check_injection_patterns(text: str) -> tuple:
     return False, None, 0.0
 
 
+def _check_canary_tokens(text: str) -> bool:
+    """Check if any canary tokens are present in the text."""
+    lower_text = text.lower()
+    for token in CANARY_TOKENS:
+        if token in lower_text:
+            return True
+    return False
+
+
 def _sanitize_regex(text: str) -> str:
     """Sanitize text by redacting sensitive patterns."""
     out = text
@@ -272,6 +285,10 @@ def inspect_text(text: str) -> dict:
         action = "BLOCK"
         stats["total_blocks"] += 1
         reason = "injection"
+    elif _check_canary_tokens(text):
+        action = "BLOCK"
+        stats["total_blocks"] += 1
+        reason = "canary_token_detected"
     else:
         # Everything else is allowed
         action = "ALLOW"
@@ -322,6 +339,16 @@ def inspect_document_text(text: str) -> dict:
                 "patterns": [],
                 "exfil": []
             }
+
+    # Check for canary tokens in document
+    if _check_canary_tokens(text):
+        return {
+            "include": False,
+            "safe_text": None,
+            "reason": "canary_token_detected",
+            "patterns": ["canary"],
+            "exfil": []
+        }
 
     # Find PII patterns for redaction (regex-based)
     patterns = _find_secret_patterns(text)

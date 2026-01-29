@@ -324,6 +324,37 @@ export default function AlertsTab({ logsData }) {
                   <p className="text-white">{selectedAlert.decision}</p>
                 </div>
               )}
+
+              {/* Forensics Metadata Section */}
+              {selectedAlert.metadata && Object.keys(selectedAlert.metadata).length > 0 && (
+                <div className="mt-6 border-t border-gray-700 pt-4">
+                  <h4 className="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-3">
+                    Forensic Metadata
+                  </h4>
+                  <div className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-gray-800 text-gray-400 uppercase text-xs">
+                        <tr>
+                          <th className="px-4 py-2">Property</th>
+                          <th className="px-4 py-2">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-800">
+                        {Object.entries(selectedAlert.metadata).map(([key, value]) => (
+                          <tr key={key} className="hover:bg-gray-800/50">
+                            <td className="px-4 py-2 font-medium text-gray-300 capitalize">
+                              {key.replace(/_/g, ' ')}
+                            </td>
+                            <td className="px-4 py-2 text-gray-100 font-mono break-all">
+                              {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-3 mt-6">

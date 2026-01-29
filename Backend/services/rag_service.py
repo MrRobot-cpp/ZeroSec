@@ -76,7 +76,21 @@ def query_rag(question: str) -> dict:
     # 1. Input firewall
     inj, score = firewall.detect_injection(question)
     if inj:
-        return {"decision": "BLOCK", "reason": "prompt_injection", "sources": []}
+        return {
+            "decision": "BLOCK",
+            "reason": "prompt_injection",
+            "answer": "SECURITY ALERT: This request has been blocked by ZeroSec Intrusion Detection system. Potential injection attempt detected.",
+            "sources": []
+        }
+
+    # Check for Canary Tokens in input question
+    if firewall._check_canary_tokens(question):
+        return {
+            "decision": "BLOCK",
+            "reason": "canary_token_detected",
+            "answer": "ACCESS DENIED: Your request contains highly sensitive forensic markers (Canary Tokens). This action has been blocked by ZeroSec Canary Triggers Detection.",
+            "sources": []
+        }
 
     # 2. Preprocess query for better retrieval
     processed_query = preprocess_query(question)
@@ -97,7 +111,7 @@ def query_rag(question: str) -> dict:
     docs = [doc for doc, score in results_with_scores]
 
     # 4. Build safe context and get actually used sources
-    context, used_sources = build_safe_context(docs)
+    context, used_sources, blocked_reason = build_safe_context(docs)
 
     # Add relevance scores to sources for transparency
     source_scores = {doc.metadata.get('filename', ''): score for doc, score in results_with_scores}
@@ -107,6 +121,14 @@ def query_rag(question: str) -> dict:
 
     # Handle no usable context
     if "[No relevant context found]" in context:
+        if blocked_reason == "canary_token_detected":
+            return {
+                "decision": "BLOCK",
+                "reason": "canary_token_detected",
+                "answer": "ACCESS DENIED: This response has been blocked by ZeroSec Canary Triggers Detection. Sensitive forensic watermarks were identified in the associated document retrieval.",
+                "sources": []
+            }
+        
         return {
             "decision": "ALLOW",
             "answer": "I found some documents but couldn't extract usable information. Please try rephrasing your question.",

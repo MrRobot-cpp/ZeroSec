@@ -83,10 +83,10 @@ def logs():
 
             combined_logs.append({
                 'id': log.audit_id,
-                'time': log.created_at.isoformat(),
+                'timestamp': log.created_at.isoformat(),
                 'query': log.action,
-                'decision': 'ALLOW',
-                'reason': log.target_type or '',
+                'decision': 'BLOCK' if log.action in ['canary_token_triggered', 'unauthorized_access', 'policy_violation'] else 'ALLOW',
+                'reason': 'Insider Threat' if log.action == 'canary_token_triggered' else (log.target_type or ''),
                 'stopped_by': username,
                 'action': log.action,
                 'metadata': log.meta_data,

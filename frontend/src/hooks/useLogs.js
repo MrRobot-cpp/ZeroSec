@@ -145,7 +145,11 @@ function categorizeAlert(reason, stoppedBy) {
   const reasonLower = reason?.toLowerCase() || "";
   const stoppedByLower = stoppedBy?.toLowerCase() || "";
 
-  if (reasonLower.includes("canary") || stoppedByLower.includes("canary")) {
+  if (
+    reasonLower.includes("canary") ||
+    reasonLower.includes("insider threat") ||
+    stoppedByLower.includes("canary")
+  ) {
     return "canary";
   }
   if (
@@ -193,6 +197,7 @@ function calculateSeverity(reason, stoppedBy) {
   if (
     reasonLower.includes("pii") ||
     reasonLower.includes("canary") ||
+    reasonLower.includes("insider threat") ||
     stoppedByLower.includes("canary")
   ) {
     return "high";

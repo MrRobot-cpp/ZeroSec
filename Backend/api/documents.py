@@ -1,12 +1,16 @@
 import json
 import re
 from pathlib import Path
-from datetime import datetime
 from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.utils import secure_filename
-from backend.services.rag_service import refresh_retriever
 
-documents_bp = Blueprint('documents', __name__)
+from backend.services.rag_service import refresh_retriever
+from backend.database.repository import DocumentRepository
+from backend.utils.rbac import require_permission, get_current_organization_id
+from backend.utils.audit import log_audit
+
+documents_bp = Blueprint('documents', __name__, url_prefix='/api')
 
 # Path configuration
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -132,31 +136,39 @@ def scan_document(filename, content):
     return issues
 
 @documents_bp.route('/documents', methods=['GET'])
+@jwt_required()
+@require_permission('read')
 def get_documents():
     """Get all documents with metadata"""
     try:
-        metadata = load_metadata()
+        organization_id = get_current_organization_id()
+        user_id = get_jwt_identity()
 
-        # Scan actual files in directory
+        # Get documents from database
+        db_documents = DocumentRepository.get_all_documents(organization_id)
+
         documents = []
-        for file_path in DOCS_PATH.glob('*.*'):
-            if file_path.is_file():
-                filename = file_path.name
-                file_meta = metadata.get(filename, {})
+        for doc in db_documents:
+            # Try to get file stats if file exists
+            file_path = DOCS_PATH / doc.filename
+            file_size = file_path.stat().st_size if file_path.exists() else 0
 
-                # Get file stats
-                stats = file_path.stat()
+            documents.append({
+                'id': doc.document_id,
+                'name': doc.filename,
+                'sensitivity': doc.sensitivity,
+                'clearance_level': doc.clearance_level.name if doc.clearance_level else None,
+                'size': file_size,
+                'uploaded_at': doc.created_at.isoformat()
+            })
 
-                documents.append({
-                    'id': filename,
-                    'name': filename,
-                    'sensitivity': file_meta.get('sensitivity', 'Unknown'),
-                    'status': file_meta.get('status', 'Uploaded'),
-                    'acl_tags': file_meta.get('acl_tags', []),
-                    'issues': file_meta.get('issues', []),
-                    'size': stats.st_size,
-                    'uploaded_at': file_meta.get('uploaded_at', datetime.fromtimestamp(stats.st_mtime).isoformat())
-                })
+        # Log audit event
+        log_audit(
+            organization_id=organization_id,
+            user_id=user_id,
+            action='documents_listed',
+            target_type='Document'
+        )
 
         return jsonify({'documents': documents}), 200
 
@@ -164,9 +176,14 @@ def get_documents():
         return jsonify({'error': str(e)}), 500
 
 @documents_bp.route('/documents/upload', methods=['POST'])
+@jwt_required()
+@require_permission('create')
 def upload_document():
     """Upload a new document"""
     try:
+        organization_id = get_current_organization_id()
+        user_id = get_jwt_identity()
+
         if 'file' not in request.files:
             return jsonify({'error': 'No file provided'}), 400
 
@@ -179,18 +196,18 @@ def upload_document():
         filename = secure_filename(file.filename)
         file_path = DOCS_PATH / filename
 
-        # Check if file already exists
-        if file_path.exists():
-            return jsonify({'error': 'File already exists'}), 409
+        # Check if document already exists in database
+        existing_doc = DocumentRepository.get_document_by_filename(organization_id, filename)
+        if existing_doc:
+            return jsonify({'error': 'Document already exists'}), 409
 
-        # Save the file in its original format (no conversion)
+        # Save the file
         file.save(str(file_path))
 
-        # Extract text content for scanning only (don't save as .txt)
+        # Extract text content for scanning
         try:
             text_content = extract_text_from_file(file_path)
         except Exception as e:
-            # If extraction fails, try to read as text directly
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     text_content = f.read()
@@ -200,142 +217,152 @@ def upload_document():
         # Scan document for issues
         issues = scan_document(filename, text_content)
 
-        # Determine sensitivity: use provided parameter, otherwise auto-detect
+        # Determine sensitivity
         provided_sensitivity = request.form.get('sensitivity', '').lower()
         if provided_sensitivity in ['high', 'medium', 'low']:
             sensitivity = provided_sensitivity.capitalize()
         else:
-            # Auto-detect based on issues
             sensitivity = 'High' if any('PII' in issue for issue in issues) else 'Medium' if issues else 'Low'
 
-        # Save metadata
-        metadata = load_metadata()
-        metadata[filename] = {
-            'uploaded_at': datetime.now().isoformat(),
-            'sensitivity': sensitivity,
-            'status': 'Scanned',
-            'acl_tags': ['public'] if sensitivity == 'Low' else ['restricted'],
-            'issues': issues,
-            'size': file_path.stat().st_size
-        }
-        save_metadata(metadata)
+        # Create document in database
+        document = DocumentRepository.create_document(
+            organization_id=organization_id,
+            filename=filename,
+            storage_ref=str(file_path),
+            sensitivity=sensitivity,
+            user_id=user_id
+        )
 
-        # Auto-refresh vectorstore to include new document
+        # Log audit event
+        log_audit(
+            organization_id=organization_id,
+            user_id=user_id,
+            action='document_uploaded',
+            target_type='Document',
+            target_id=document.document_id,
+            metadata={'filename': filename, 'sensitivity': sensitivity, 'issues_count': len(issues)}
+        )
+
+        # Auto-refresh vectorstore
         try:
             refresh_retriever()
         except Exception:
-            pass  # Non-critical, will refresh on next query
+            pass
 
         return jsonify({
             'message': 'File uploaded successfully',
             'document': {
+                'id': document.document_id,
                 'name': filename,
                 'sensitivity': sensitivity,
-                'status': 'Scanned',
-                'issues': issues,
-                'acl_tags': metadata[filename]['acl_tags']
+                'issues_count': len(issues)
             }
         }), 201
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@documents_bp.route('/documents/<filename>', methods=['GET'])
-def get_document_details(filename):
+@documents_bp.route('/documents/<int:document_id>', methods=['GET'])
+@jwt_required()
+@require_permission('read')
+def get_document_details(document_id):
     """Get detailed information about a specific document"""
     try:
-        filename = secure_filename(filename)
-        file_path = DOCS_PATH / filename
+        organization_id = get_current_organization_id()
+        user_id = get_jwt_identity()
 
-        if not file_path.exists():
-            return jsonify({'error': 'File not found'}), 404
+        # Get document from database
+        document = DocumentRepository.get_document_by_id(document_id)
 
-        # Load metadata
-        metadata = load_metadata()
-        file_meta = metadata.get(filename, {})
+        if not document or document.organization_id != organization_id:
+            return jsonify({'error': 'Document not found'}), 404
 
-        # Get file stats
-        stats = file_path.stat()
+        file_path = DOCS_PATH / document.filename
 
-        # Extract content preview
+        # Extract content preview if file exists
         content_preview = ""
-        try:
-            text_content = extract_text_from_file(file_path)
-            content_preview = text_content[:500] + "..." if len(text_content) > 500 else text_content
-        except Exception:
-            content_preview = "[Unable to extract content preview]"
+        file_size = 0
+        if file_path.exists():
+            file_size = file_path.stat().st_size
+            try:
+                text_content = extract_text_from_file(file_path)
+                content_preview = text_content[:500] + "..." if len(text_content) > 500 else text_content
+            except Exception:
+                content_preview = "[Unable to extract content preview]"
+
+        # Get activity log from audit
+        from backend.utils.audit import get_document_activity
+        activity_log = get_document_activity(document_id, limit=10)
 
         # Build document details
-        document = {
-            'id': filename,
-            'name': filename,
-            'sensitivity': file_meta.get('sensitivity', 'Unknown'),
-            'status': file_meta.get('status', 'Uploaded'),
-            'acl_tags': file_meta.get('acl_tags', []),
-            'issues': file_meta.get('issues', []),
-            'size': stats.st_size,
-            'uploaded_at': file_meta.get('uploaded_at', datetime.fromtimestamp(stats.st_mtime).isoformat()),
+        doc_details = {
+            'id': document.document_id,
+            'name': document.filename,
+            'sensitivity': document.sensitivity,
+            'clearance_level': document.clearance_level.name if document.clearance_level else None,
+            'size': file_size,
+            'uploaded_at': document.created_at.isoformat(),
             'content_preview': content_preview,
-            'scan_results': {
-                'pii_count': len([i for i in file_meta.get('issues', []) if 'PII' in i]),
-                'injection_score': 0.0,
-            },
-            'abac_attributes': {
-                'department': 'All',
-                'clearance_level': 'Confidential' if file_meta.get('sensitivity') == 'High' else 'Public',
-                'data_classification': file_meta.get('sensitivity', 'Unknown'),
-                'retention_policy': 'Standard'
-            },
-            'activity_log': [
-                {
-                    'timestamp': file_meta.get('uploaded_at'),
-                    'action': 'Document uploaded',
-                    'user': 'System',
-                    'details': 'Initial upload and security scan'
-                },
-                {
-                    'timestamp': file_meta.get('uploaded_at'),
-                    'action': 'Security scan completed',
-                    'user': 'System',
-                    'details': f"Found {len(file_meta.get('issues', []))} issues"
-                }
-            ],
-            'access_count': file_meta.get('access_count', 0),
-            'last_accessed': file_meta.get('last_accessed')
+            'activity_log': activity_log
         }
 
-        return jsonify({'document': document}), 200
+        # Log audit event
+        log_audit(
+            organization_id=organization_id,
+            user_id=user_id,
+            action='document_viewed',
+            target_type='Document',
+            target_id=document_id
+        )
+
+        return jsonify({'document': doc_details}), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-@documents_bp.route('/documents/<filename>', methods=['DELETE'])
-def delete_document(filename):
+@documents_bp.route('/documents/<int:document_id>', methods=['DELETE'])
+@jwt_required()
+@require_permission('delete')
+def delete_document(document_id):
     """Delete a document"""
     try:
-        filename = secure_filename(filename)
+        organization_id = get_current_organization_id()
+        user_id = get_jwt_identity()
+
+        # Get document from database
+        document = DocumentRepository.get_document_by_id(document_id)
+
+        if not document or document.organization_id != organization_id:
+            return jsonify({'error': 'Document not found'}), 404
+
+        filename = document.filename
         file_path = DOCS_PATH / filename
 
-        if not file_path.exists():
-            return jsonify({'error': 'File not found'}), 404
+        # Delete the physical file if it exists
+        if file_path.exists():
+            file_path.unlink()
 
-        # Delete the file
-        file_path.unlink()
+        # Delete from database (cascades to uploads, canary tokens, etc.)
+        DocumentRepository.delete_document(document_id)
 
-        # Update metadata
-        metadata = load_metadata()
-        if filename in metadata:
-            del metadata[filename]
-            save_metadata(metadata)
+        # Log audit event
+        log_audit(
+            organization_id=organization_id,
+            user_id=user_id,
+            action='document_deleted',
+            target_type='Document',
+            target_id=document_id,
+            metadata={'filename': filename}
+        )
 
-        # Auto-refresh vectorstore to remove deleted document
+        # Auto-refresh vectorstore
         try:
             refresh_retriever()
         except Exception:
-            pass  # Non-critical, will refresh on next query
+            pass
 
-        return jsonify({'message': 'File deleted successfully'}), 200
+        return jsonify({'message': 'Document deleted successfully'}), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500

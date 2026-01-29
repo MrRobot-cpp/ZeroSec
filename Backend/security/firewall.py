@@ -27,7 +27,7 @@ MODEL = "deberta"
 INJECTION_THRESHOLD = 0.85  # Very high threshold - only block obvious attacks
 MIN_TEXT_LENGTH_FOR_ML = 100  # Only use ML model for longer texts
 SANITIZE_ON_QUARANTINE = True
-# Use absolute path for models
+# Use absolute path for PII model
 BASE_DIR = Path(__file__).resolve().parents[1]  # Backend directory
 PII_MODEL_PATH = BASE_DIR / "models" / "pii_pipeline.pkl"
 ADVBENCH_MODEL_PATH = BASE_DIR / "models" / "advbench_detector.pkl"
@@ -144,48 +144,6 @@ else:
     print(f"[firewall] PII pipeline not found at {PII_MODEL_PATH}; continuing with regex-only redaction.")
     print(f"[firewall] Expected path: {PII_MODEL_PATH.resolve()}")
 
-# Try to load AdvBench adversarial prompt detector (optional)
-_advbench_pipeline = None
-_advbench_model = None
-_advbench_vectorizer = None
-_advbench_is_keras = False
-
-if ADVBENCH_MODEL_PATH.exists():
-    try:
-        print(f"Loading AdvBench adversarial detector from {ADVBENCH_MODEL_PATH} ...")
-        _advbench_pipeline = joblib.load(str(ADVBENCH_MODEL_PATH))
-        _advbench_vectorizer = _advbench_pipeline.get("vectorizer")
-
-        # Check if it's a Keras model
-        if _advbench_pipeline.get("model_type") == "keras":
-            _advbench_is_keras = True
-            keras_path = _advbench_pipeline.get("model_path", str(ADVBENCH_KERAS_PATH))
-            if Path(keras_path).exists():
-                try:
-                    import tensorflow as tf
-                    _advbench_model = tf.keras.models.load_model(keras_path)
-                    print(f"[firewall] AdvBench Keras model loaded successfully!")
-                except ImportError:
-                    print(f"[firewall] TensorFlow not available, AdvBench model disabled")
-                    _advbench_model = None
-            else:
-                print(f"[firewall] Keras model not found at {keras_path}")
-        else:
-            # sklearn model stored directly in pipeline
-            _advbench_model = _advbench_pipeline.get("model")
-            if _advbench_model is not None:
-                print(f"[firewall] AdvBench sklearn model loaded successfully!")
-
-        if _advbench_model is not None:
-            accuracy = _advbench_pipeline.get("accuracy", "N/A")
-            print(f"[firewall] AdvBench model accuracy: {accuracy}")
-    except Exception as e:
-        print(f"[firewall] Failed to load AdvBench model: {e}")
-        _advbench_pipeline = None
-else:
-    print(f"[firewall] AdvBench model not found at {ADVBENCH_MODEL_PATH}")
-    print(f"[firewall] Run the training notebook to create it: Backend/models/train_advbench_model.ipynb")
-
 print("Firewall Ready ✅")
 
 # Stats + queue
@@ -246,6 +204,15 @@ def _check_injection_patterns(text: str) -> tuple:
             return True, "cmd_injection", 0.9
 
     return False, None, 0.0
+
+
+def _check_canary_tokens(text: str) -> bool:
+    """Check if any canary tokens are present in the text."""
+    lower_text = text.lower()
+    for token in CANARY_TOKENS:
+        if token in lower_text:
+            return True
+    return False
 
 
 def _sanitize_regex(text: str) -> str:
@@ -372,6 +339,10 @@ def inspect_text(text: str) -> dict:
         action = "BLOCK"
         stats["total_blocks"] += 1
         reason = "injection"
+    elif _check_canary_tokens(text):
+        action = "BLOCK"
+        stats["total_blocks"] += 1
+        reason = "canary_token_detected"
     else:
         # Everything else is allowed
         action = "ALLOW"
@@ -422,6 +393,16 @@ def inspect_document_text(text: str) -> dict:
                 "patterns": [],
                 "exfil": []
             }
+
+    # Check for canary tokens in document
+    if _check_canary_tokens(text):
+        return {
+            "include": False,
+            "safe_text": None,
+            "reason": "canary_token_detected",
+            "patterns": ["canary"],
+            "exfil": []
+        }
 
     # Find PII patterns for redaction (regex-based)
     patterns = _find_secret_patterns(text)

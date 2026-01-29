@@ -111,13 +111,14 @@ def build_safe_context(docs):
             })
 
     if not parts:
-        return "[No relevant context found]", []
+        blocked_reason = removed[0].get("reason") if removed else "no_relevant_context"
+        return "[No relevant context found]", [], blocked_reason
 
     header = ""
     if removed:
         header = f"[Note: {len(removed)} chunk(s) filtered for security]\n\n"
 
-    return header + "\n\n---\n\n".join(parts), used_sources
+    return header + "\n\n---\n\n".join(parts), used_sources, None
 
 
 # -------------------------

@@ -21,35 +21,30 @@ export default function AlertsTab({ logsData }) {
   const alertTypeConfig = {
     canary: {
       label: "Canary Triggers",
-      icon: "🐤",
       color: "text-yellow-400",
       bgColor: "bg-yellow-900/30",
       borderColor: "border-yellow-400",
     },
     jailbreak: {
       label: "Jailbreak Attempts",
-      icon: "🔓",
       color: "text-red-400",
       bgColor: "bg-red-900/30",
       borderColor: "border-red-400",
     },
     leak: {
       label: "Data Leak Attempts",
-      icon: "💧",
       color: "text-orange-400",
       bgColor: "bg-orange-900/30",
       borderColor: "border-orange-400",
     },
     suspicious: {
       label: "Suspicious Users",
-      icon: "👤",
       color: "text-purple-400",
       bgColor: "bg-purple-900/30",
       borderColor: "border-purple-400",
     },
     other: {
       label: "Other Alerts",
-      icon: "⚠️",
       color: "text-gray-400",
       bgColor: "bg-gray-700/30",
       borderColor: "border-gray-500",
@@ -66,9 +61,8 @@ export default function AlertsTab({ logsData }) {
 
     return (
       <span
-        className={`px-2 py-1 rounded text-xs font-medium border ${
-          severityStyles[severity] || severityStyles.low
-        }`}
+        className={`px-2 py-1 rounded text-xs font-medium border ${severityStyles[severity] || severityStyles.low
+          }`}
       >
         {severity?.toUpperCase() || "LOW"}
       </span>
@@ -89,9 +83,8 @@ export default function AlertsTab({ logsData }) {
           return (
             <div
               key={type}
-              className={`bg-gray-800 border border-gray-700 rounded-xl p-4 ${
-                count > 0 ? "hover:border-gray-600 cursor-pointer" : ""
-              } transition-colors`}
+              className={`bg-gray-800 border border-gray-700 rounded-xl p-4 ${count > 0 ? "hover:border-gray-600 cursor-pointer" : ""
+                } transition-colors`}
               onClick={() => count > 0 && applyFilters({ alertType: type })}
             >
               <div className="flex items-center justify-between">
@@ -101,7 +94,6 @@ export default function AlertsTab({ logsData }) {
                     {count}
                   </p>
                 </div>
-                <span className="text-4xl">{config.icon}</span>
               </div>
             </div>
           );
@@ -189,13 +181,6 @@ export default function AlertsTab({ logsData }) {
                 onClick={() => openAlertDetail(alert)}
               >
                 <div className="flex items-start gap-4">
-                  {/* Icon */}
-                  <div
-                    className={`text-3xl p-3 rounded-lg ${config.bgColor} ${config.borderColor} border`}
-                  >
-                    {config.icon}
-                  </div>
-
                   {/* Alert Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4 mb-2">
@@ -258,9 +243,6 @@ export default function AlertsTab({ logsData }) {
           <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-start mb-6">
               <div className="flex items-center gap-3">
-                <span className="text-4xl">
-                  {alertTypeConfig[selectedAlert.alertType]?.icon || "⚠️"}
-                </span>
                 <div>
                   <h3 className="text-xl font-bold text-white">
                     {alertTypeConfig[selectedAlert.alertType]?.label || "Alert Details"}
@@ -340,6 +322,37 @@ export default function AlertsTab({ logsData }) {
                     Decision
                   </label>
                   <p className="text-white">{selectedAlert.decision}</p>
+                </div>
+              )}
+
+              {/* Forensics Metadata Section */}
+              {selectedAlert.metadata && Object.keys(selectedAlert.metadata).length > 0 && (
+                <div className="mt-6 border-t border-gray-700 pt-4">
+                  <h4 className="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-3">
+                    Forensic Metadata
+                  </h4>
+                  <div className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-gray-800 text-gray-400 uppercase text-xs">
+                        <tr>
+                          <th className="px-4 py-2">Property</th>
+                          <th className="px-4 py-2">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-800">
+                        {Object.entries(selectedAlert.metadata).map(([key, value]) => (
+                          <tr key={key} className="hover:bg-gray-800/50">
+                            <td className="px-4 py-2 font-medium text-gray-300 capitalize">
+                              {key.replace(/_/g, ' ')}
+                            </td>
+                            <td className="px-4 py-2 text-gray-100 font-mono break-all">
+                              {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>

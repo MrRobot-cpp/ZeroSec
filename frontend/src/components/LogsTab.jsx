@@ -134,7 +134,6 @@ export default function LogsTab({ logsData }) {
                 <tr>
                   <td colSpan="7" className="py-12 text-center">
                     <div className="flex flex-col items-center gap-3">
-                      <span className="animate-spin text-4xl">⟳</span>
                       <p className="text-gray-400">Loading logs...</p>
                     </div>
                   </td>
@@ -143,7 +142,6 @@ export default function LogsTab({ logsData }) {
                 <tr>
                   <td colSpan="7" className="py-12 text-center">
                     <div className="flex flex-col items-center gap-3">
-                      <span className="text-5xl">🔍</span>
                       <p className="text-gray-400">No logs found</p>
                       <p className="text-sm text-gray-500">
                         Try adjusting your filters or search term

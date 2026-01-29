@@ -138,6 +138,26 @@ def get_system_health():
         return jsonify({'error': str(e)}), 500
 
 
+@dashboard_bp.route('/api/dashboard/alerts', methods=['GET'])
+@jwt_required()
+def get_dashboard_alerts():
+    """Get security alerts"""
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
+
+    try:
+        # Get optional status parameter (all, open, closed)
+        status = request.args.get('status', 'all')
+        limit = request.args.get('limit', 50, type=int)
+
+        alerts = DashboardRepository.get_alerts(organization_id, status=status, limit=limit)
+        return jsonify({'alerts': alerts}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @dashboard_bp.route('/api/metrics', methods=['GET'])
 @jwt_required()
 def get_metrics():

@@ -8,9 +8,9 @@ export default function UsersAccessControl() {
   const [activeTab, setActiveTab] = useState("users");
 
   const tabs = [
-    { id: "users", label: "Users", icon: "👥" },
-    { id: "roles", label: "Roles", icon: "🔑" },
-    { id: "attributes", label: "Attributes", icon: "🏷️" },
+    { id: "users", label: "Users" },
+    { id: "roles", label: "Roles" },
+    { id: "attributes", label: "Attributes" },
   ];
 
   return (
@@ -31,14 +31,13 @@ export default function UsersAccessControl() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 ${
+            className={`px-6 py-3 rounded-lg font-medium transition-all duration-200 ${
               activeTab === tab.id
                 ? "bg-blue-600 text-white shadow-lg"
                 : "text-gray-400 hover:text-white hover:bg-gray-700"
             }`}
           >
-            <span className="text-xl">{tab.icon}</span>
-            <span>{tab.label}</span>
+            {tab.label}
           </button>
         ))}
       </div>

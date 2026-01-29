@@ -21,35 +21,30 @@ export default function AlertsTab({ logsData }) {
   const alertTypeConfig = {
     canary: {
       label: "Canary Triggers",
-      icon: "🐤",
       color: "text-yellow-400",
       bgColor: "bg-yellow-900/30",
       borderColor: "border-yellow-400",
     },
     jailbreak: {
       label: "Jailbreak Attempts",
-      icon: "🔓",
       color: "text-red-400",
       bgColor: "bg-red-900/30",
       borderColor: "border-red-400",
     },
     leak: {
       label: "Data Leak Attempts",
-      icon: "💧",
       color: "text-orange-400",
       bgColor: "bg-orange-900/30",
       borderColor: "border-orange-400",
     },
     suspicious: {
       label: "Suspicious Users",
-      icon: "👤",
       color: "text-purple-400",
       bgColor: "bg-purple-900/30",
       borderColor: "border-purple-400",
     },
     other: {
       label: "Other Alerts",
-      icon: "⚠️",
       color: "text-gray-400",
       bgColor: "bg-gray-700/30",
       borderColor: "border-gray-500",
@@ -66,9 +61,8 @@ export default function AlertsTab({ logsData }) {
 
     return (
       <span
-        className={`px-2 py-1 rounded text-xs font-medium border ${
-          severityStyles[severity] || severityStyles.low
-        }`}
+        className={`px-2 py-1 rounded text-xs font-medium border ${severityStyles[severity] || severityStyles.low
+          }`}
       >
         {severity?.toUpperCase() || "LOW"}
       </span>
@@ -89,9 +83,8 @@ export default function AlertsTab({ logsData }) {
           return (
             <div
               key={type}
-              className={`bg-gray-800 border border-gray-700 rounded-xl p-4 ${
-                count > 0 ? "hover:border-gray-600 cursor-pointer" : ""
-              } transition-colors`}
+              className={`bg-gray-800 border border-gray-700 rounded-xl p-4 ${count > 0 ? "hover:border-gray-600 cursor-pointer" : ""
+                } transition-colors`}
               onClick={() => count > 0 && applyFilters({ alertType: type })}
             >
               <div className="flex items-center justify-between">
@@ -101,7 +94,6 @@ export default function AlertsTab({ logsData }) {
                     {count}
                   </p>
                 </div>
-                <span className="text-4xl">{config.icon}</span>
               </div>
             </div>
           );
@@ -189,13 +181,6 @@ export default function AlertsTab({ logsData }) {
                 onClick={() => openAlertDetail(alert)}
               >
                 <div className="flex items-start gap-4">
-                  {/* Icon */}
-                  <div
-                    className={`text-3xl p-3 rounded-lg ${config.bgColor} ${config.borderColor} border`}
-                  >
-                    {config.icon}
-                  </div>
-
                   {/* Alert Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4 mb-2">
@@ -258,9 +243,6 @@ export default function AlertsTab({ logsData }) {
           <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-start mb-6">
               <div className="flex items-center gap-3">
-                <span className="text-4xl">
-                  {alertTypeConfig[selectedAlert.alertType]?.icon || "⚠️"}
-                </span>
                 <div>
                   <h3 className="text-xl font-bold text-white">
                     {alertTypeConfig[selectedAlert.alertType]?.label || "Alert Details"}

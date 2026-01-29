@@ -10,8 +10,8 @@ export default function LogsAndAlerts() {
   const logsData = useLogs();
 
   const tabs = [
-    { id: "logs", label: "Logs", icon: "📋" },
-    { id: "alerts", label: "Alerts", icon: "🚨" },
+    { id: "logs", label: "Logs" },
+    { id: "alerts", label: "Alerts" },
   ];
 
   return (
@@ -31,15 +31,9 @@ export default function LogsAndAlerts() {
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
         >
           {logsData.loading ? (
-            <>
-              <span className="animate-spin">⟳</span>
-              Refreshing...
-            </>
+            <span>Refreshing...</span>
           ) : (
-            <>
-              <span>🔄</span>
-              Refresh
-            </>
+            <span>Refresh</span>
           )}
         </button>
       </div>
@@ -58,13 +52,11 @@ export default function LogsAndAlerts() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2 ${
-              activeTab === tab.id
-                ? "bg-blue-600 text-white shadow-lg"
-                : "text-gray-400 hover:text-white hover:bg-gray-700"
-            }`}
+            className={`px-6 py-3 rounded-lg font-medium transition-all flex items-center gap-2 ${activeTab === tab.id
+              ? "bg-blue-600 text-white shadow-lg"
+              : "text-gray-400 hover:text-white hover:bg-gray-700"
+              }`}
           >
-            <span className="text-xl">{tab.icon}</span>
             <span>{tab.label}</span>
             {tab.id === "logs" && (
               <span className="ml-2 px-2 py-0.5 bg-gray-700 text-gray-300 text-xs rounded-full">

@@ -88,18 +88,12 @@ export async function uploadDocument(file, sensitivity = "medium") {
 
 /**
  * Delete a document
- * @param {string} filename - The name/ID of the file to delete
+ * @param {number} documentId - The ID of the document to delete
  * @returns {Promise<Object>} - Deletion response
  */
-export async function deleteDocument(filename) {
+export async function deleteDocument(documentId) {
   try {
-    // Use legacy endpoint (accepts filename)
-    const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(filename)}`, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const response = await apiClient.delete(`/api/documents/${documentId}`);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

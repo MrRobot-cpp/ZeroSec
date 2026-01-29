@@ -108,6 +108,23 @@ class UserRepository:
         ).limit(limit).offset(offset).all()
 
     @staticmethod
+    def create_user(organization_id, username, email, password_hash, department_id=None, clearance_level_id=None, status="Active"):
+        """Create a new user"""
+        from backend.database.db import db
+        user = User(
+            organization_id=organization_id,
+            username=username,
+            email=email,
+            password_hash=password_hash,
+            department_id=department_id,
+            clearance_level_id=clearance_level_id,
+            status=status
+        )
+        db.session.add(user)
+        db.session.commit()
+        return user
+
+    @staticmethod
     def update_user(user_id, **kwargs):
         """Update user fields"""
         user = User.query.get(user_id)
@@ -384,7 +401,7 @@ class DashboardRepository:
         yesterday = datetime.now(timezone.utc) - timedelta(days=1)
         recent_uploads = Document.query.filter(
             Document.organization_id == organization_id,
-            Document.uploaded_at >= yesterday
+            Document.created_at >= yesterday
         ).count()
 
         # Documents by sensitivity level
@@ -555,6 +572,59 @@ class DashboardRepository:
             'error_count_24h': error_count,
             'timestamp': datetime.now(timezone.utc).isoformat()
         }
+
+    @staticmethod
+    def get_alerts(organization_id, status='all', limit=50):
+        """Get security alerts (security-related audit log events)"""
+        from datetime import timedelta
+
+        # Security-related actions that should trigger alerts
+        security_actions = [
+            'canary_token_triggered',
+            'unauthorized_access',
+            'policy_violation',
+            'document_deleted',
+            'user_suspended',
+            'password_changed',
+            'login_failed',
+            'access_denied'
+        ]
+
+        # Query security-related audit logs
+        query = AuditLog.query.filter(
+            AuditLog.organization_id == organization_id,
+            AuditLog.action.in_(security_actions)
+        )
+
+        # Filter by status if provided
+        if status == 'open':
+            # Open alerts are recent (last 24 hours)
+            last_24h = datetime.now(timezone.utc) - timedelta(days=1)
+            query = query.filter(AuditLog.created_at >= last_24h)
+        elif status == 'closed':
+            # Closed alerts are older (more than 24 hours)
+            last_24h = datetime.now(timezone.utc) - timedelta(days=1)
+            query = query.filter(AuditLog.created_at < last_24h)
+
+        alerts = query.order_by(AuditLog.created_at.desc()).limit(limit).all()
+
+        # Convert to alert format
+        alert_list = []
+        for alert in alerts:
+            alert_dict = {
+                'id': alert.audit_id,
+                'type': alert.action,
+                'message': f"{alert.action.replace('_', ' ').title()}",
+                'severity': 'high' if alert.action == 'unauthorized_access' else 'medium',
+                'timestamp': alert.created_at.isoformat(),
+                'status': 'open' if (datetime.now(timezone.utc) - alert.created_at).days < 1 else 'closed',
+                'user': alert.user.username if alert.user else 'System',
+                'target': alert.target_type,
+                'target_id': alert.target_id
+            }
+            alert_list.append(alert_dict)
+
+        return alert_list
 
 class PolicyRepository:
     """Repository for Policy operations"""

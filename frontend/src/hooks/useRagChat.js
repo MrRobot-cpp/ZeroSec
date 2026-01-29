@@ -1,12 +1,32 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { queryRag } from "@/services/ragService";
 
 /**
  * Custom hook for managing RAG chat functionality
- * Handles message state, API calls, and error handling
+ * Handles message state, API calls, error handling, and persistence
  */
 export function useRagChat() {
-  const [messages, setMessages] = useState([]);
+  // Initialize messages from localStorage
+  const [messages, setMessages] = useState(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('ragChatHistory');
+      return saved ? JSON.parse(saved) : [];
+    } catch (error) {
+      console.error('Error loading chat history from localStorage:', error);
+      return [];
+    }
+  });
+
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('ragChatHistory', JSON.stringify(messages));
+    } catch (error) {
+      console.error('Error saving chat history to localStorage:', error);
+    }
+  }, [messages]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -63,11 +83,14 @@ export function useRagChat() {
   }, []);
 
   /**
-   * Clear all messages from the chat
+   * Clear all messages from the chat and localStorage
    */
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('ragChatHistory');
+    }
   }, []);
 
   /**

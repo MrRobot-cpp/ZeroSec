@@ -95,34 +95,30 @@ def _initialize_default_data():
         db.session.add(cl)
     db.session.flush()
 
-    # Create default roles
+    # Create default roles matching frontend
     roles_data = [
         {
-            "name": "Super Admin",
-            "description": "Full system access",
-            "permissions": ["create", "read", "update", "delete", "admin"]
-        },
-        {
             "name": "Admin",
-            "description": "Administrative access",
-            "permissions": ["create", "read", "update", "delete"]
+            "description": "Full system access with all permissions",
+            "permissions": ["read", "create", "update", "delete", "admin"]
         },
         {
-            "name": "Manager",
-            "description": "Manager access",
-            "permissions": ["create", "read", "update"]
+            "name": "Security Analyst",
+            "description": "Security monitoring and analysis capabilities",
+            "permissions": ["read", "create", "update"]
+        },
+        {
+            "name": "Auditor",
+            "description": "Read-only access for compliance and auditing",
+            "permissions": ["read"]
         },
         {
             "name": "User",
-            "description": "Standard user access",
+            "description": "Basic user access with limited permissions",
             "permissions": ["read", "create"]
-        },
-        {
-            "name": "Viewer",
-            "description": "Read-only access",
-            "permissions": ["read"]
         }
     ]
+
 
     roles = {}
     for role_data in roles_data:
@@ -183,13 +179,14 @@ def _initialize_default_data():
     db.session.add(admin_user)
     db.session.flush()
 
-    # Assign Super Admin role to admin user
+    # Assign Admin role to admin user
     from backend.database.models import UserRole
     admin_user_role = UserRole(
         user_id=admin_user.user_id,
-        role_id=roles["Super Admin"].role_id
+        role_id=roles["Admin"].role_id
     )
     db.session.add(admin_user_role)
+
 
     # Commit all changes
     db.session.commit()

@@ -18,8 +18,8 @@ export default function useLogs() {
     try {
       const data = await getLogsAndAlerts();
 
-      // Separate logs and alerts based on decision and reason
-      const allLogs = data.logs || [];
+      // Handle both array and object responses from the API
+      const allLogs = (Array.isArray(data) ? data : data.logs) || [];
 
       // Logs are all entries
       setLogs(allLogs);
@@ -48,6 +48,11 @@ export default function useLogs() {
 
   const getFilteredLogs = useCallback(() => {
     let filtered = [...logs];
+
+    // Exclude health_check logs by default
+    filtered = filtered.filter(
+      (log) => (log.query || log.Query) !== "health_check"
+    );
 
     // Filter by type
     if (filters.type && filters.type !== "all") {
@@ -79,7 +84,7 @@ export default function useLogs() {
       );
     }
 
-    return filtered;
+    return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }, [logs, filters]);
 
   const getFilteredAlerts = useCallback(() => {
@@ -108,7 +113,7 @@ export default function useLogs() {
       );
     }
 
-    return filtered;
+    return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }, [alerts, filters]);
 
   useEffect(() => {

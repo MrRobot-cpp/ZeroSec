@@ -81,7 +81,6 @@ function IntegrationsTab() {
       providers: [
         {
           name: "Pinecone",
-          logo: "📍",
           connected: false,
           fields: [
             { label: "API Key", type: "password", placeholder: "pcone_..." },

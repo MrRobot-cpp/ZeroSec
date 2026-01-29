@@ -221,11 +221,11 @@ def login():
         }
 
         access_token = create_access_token(
-            identity=user.user_id,
+            identity=str(user.user_id),
             additional_claims=additional_claims
         )
         refresh_token = create_refresh_token(
-            identity=user.user_id,
+            identity=str(user.user_id),
             additional_claims=additional_claims
         )
 
@@ -266,7 +266,7 @@ def refresh():
 
         # Create new access token
         access_token = create_access_token(
-            identity=current_user_id,
+            identity=str(current_user_id),
             additional_claims={
                 'organization_id': jwt_data.get('organization_id'),
                 'roles': jwt_data.get('roles', []),

@@ -17,6 +17,7 @@ from backend.api.auth import auth_bp
 from backend.api.logs import logs_bp
 from backend.api.policies import policies_bp
 from backend.api.roles import roles_bp
+from backend.api.users import users_bp
 from backend.api.dashboard import dashboard_bp
 from backend.api.subscriptions import subscriptions_bp
 from backend.api.metrics import metrics_bp
@@ -43,6 +44,7 @@ app.register_blueprint(canary_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(policies_bp)
 app.register_blueprint(roles_bp)
+app.register_blueprint(users_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(subscriptions_bp)
 app.register_blueprint(metrics_bp)
@@ -73,20 +75,29 @@ def logs():
 
         # Add audit logs to the response
         for log in audit_logs:
+            try:
+                username = log.user.username if log.user else 'system'
+            except Exception as e:
+                print(f"Error getting username for audit log {log.audit_id}: {e}")
+                username = 'system'
+
             combined_logs.append({
                 'id': log.audit_id,
                 'time': log.created_at.isoformat(),
                 'query': log.action,
                 'decision': 'ALLOW',
                 'reason': log.target_type or '',
-                'stopped_by': log.user.username if log.user else 'system',
+                'stopped_by': username,
                 'action': log.action,
                 'metadata': log.meta_data,
                 'type': 'audit'
             })
 
         return jsonify(combined_logs)
-    except Exception:
+    except Exception as e:
+        print(f"Error in /logs endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         # Fallback to original firewall logs only
         return jsonify(get_logs())
 

@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import apiClient from "@/services/apiClient";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5200";
 
@@ -22,7 +23,7 @@ export default function DocumentDetails() {
   const fetchDocumentDetails = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/documents/${documentId}`);
+      const response = await apiClient.get(`/api/documents/${documentId}`);
       if (!response.ok) {
         throw new Error("Document not found");
       }

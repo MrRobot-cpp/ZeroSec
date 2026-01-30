@@ -56,10 +56,10 @@ models/
 nul
 
 .claude
-<<<<<<< HEAD
-*.db
-*.md
-=======
 
-*md
->>>>>>> 0e6aef68f7cf98b9b8659096b995b5afa160fed2
+bert*
+*.md
+
+confusion*
+eda*
+training_curves*

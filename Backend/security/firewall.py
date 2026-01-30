@@ -109,6 +109,14 @@ EXFIL_KEYWORDS = [
     "ssn", "social security", "credit card number"
 ]
 
+# Canary tokens - special markers to detect unauthorized data access
+CANARY_TOKENS = [
+    "canary_token_detected",
+    "zerosec_canary_",
+    "honeypot_token",
+    "trap_document"
+]
+
 # -------------------------
 # INITIALIZE MODELS
 # -------------------------
@@ -143,6 +151,46 @@ if PII_MODEL_PATH.exists():
 else:
     print(f"[firewall] PII pipeline not found at {PII_MODEL_PATH}; continuing with regex-only redaction.")
     print(f"[firewall] Expected path: {PII_MODEL_PATH.resolve()}")
+
+# Try to load AdvBench adversarial prompt detection model (optional)
+_advbench_model = None
+_advbench_vectorizer = None
+_advbench_is_keras = False
+
+# Try Keras model first
+if ADVBENCH_KERAS_PATH.exists():
+    try:
+        import tensorflow as tf
+        print(f"Loading AdvBench Keras model from {ADVBENCH_KERAS_PATH} ...")
+        _advbench_model = tf.keras.models.load_model(str(ADVBENCH_KERAS_PATH))
+        # Load the corresponding vectorizer from the pkl file
+        if ADVBENCH_MODEL_PATH.exists():
+            advbench_pipeline = joblib.load(str(ADVBENCH_MODEL_PATH))
+            _advbench_vectorizer = advbench_pipeline.get("vectorizer")
+        _advbench_is_keras = True
+        print("[firewall] AdvBench Keras model loaded successfully!")
+    except Exception as e:
+        print(f"[firewall] Failed to load AdvBench Keras model: {e}")
+        _advbench_model = None
+        _advbench_is_keras = False
+
+# If Keras model failed, try sklearn model from pkl
+if _advbench_model is None and ADVBENCH_MODEL_PATH.exists():
+    try:
+        print(f"Loading AdvBench sklearn model from {ADVBENCH_MODEL_PATH} ...")
+        advbench_pipeline = joblib.load(str(ADVBENCH_MODEL_PATH))
+        _advbench_vectorizer = advbench_pipeline.get("vectorizer")
+        _advbench_model = advbench_pipeline.get("model")
+        if _advbench_model is not None:
+            print("[firewall] AdvBench sklearn model loaded successfully!")
+        else:
+            print("[firewall] Warning: AdvBench pipeline loaded but no model found")
+    except Exception as e:
+        print(f"[firewall] Failed to load AdvBench sklearn model: {e}")
+        _advbench_model = None
+
+if _advbench_model is None:
+    print("[firewall] AdvBench model not available; continuing without adversarial detection.")
 
 print("Firewall Ready ✅")
 

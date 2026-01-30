@@ -112,6 +112,14 @@ EXFIL_KEYWORDS = [
     "ssn", "social security", "credit card number"
 ]
 
+# Canary tokens - special markers to detect unauthorized data access
+CANARY_TOKENS = [
+    "canary_token_detected",
+    "zerosec_canary_",
+    "honeypot_token",
+    "trap_document"
+]
+
 # -------------------------
 # INITIALIZE MODELS
 # -------------------------

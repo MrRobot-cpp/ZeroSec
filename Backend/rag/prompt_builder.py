@@ -17,7 +17,7 @@ Rules:
 5. If the documents don't contain the answer, say "The provided documents don't contain this information."
 6. Never make up information that isn't in the documents"""
 
-MAX_CHUNKS = 4  # Keep focused on most relevant chunks
+MAX_CHUNKS = 3  # Reduced for speed (was 4)
 MAX_CHARS_PER_CHUNK = 800  # Allow more content per chunk
 
 # -------------------------

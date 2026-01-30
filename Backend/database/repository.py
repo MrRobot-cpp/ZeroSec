@@ -146,8 +146,71 @@ class UserRepository:
             return True
         return False
 
+
+
 class RoleRepository:
     """Repository for Role operations"""
+
+    @staticmethod
+    def create_default_roles(organization_id):
+        """Create default roles for a new organization"""
+        roles_definitions = [
+            {
+                'name': 'Super Admin',
+                'description': 'Full access to all system features',
+                'permissions': [
+                    'admin', 'create', 'read', 'update', 'delete',
+                    'document_view', 'document_upload', 'document_delete', 'document_manage',
+                    'user_manage', 'role_manage', 'policy_manage', 'audit_view',
+                    'canary_manage', 'rag_query', 'admin_full'
+                ]
+            },
+            {
+                'name': 'Admin',
+                'description': 'Administrative access for day-to-day operations',
+                'permissions': [
+                    'admin', 'create', 'read', 'update', 'delete',
+                    'document_view', 'document_upload', 'document_delete', 'document_manage',
+                    'user_manage', 'policy_manage', 'audit_view', 'canary_manage', 'rag_query'
+                ]
+            },
+            {
+                'name': 'Security Admin',
+                'description': 'Focus on security policies and audit logs',
+                'permissions': [
+                    'read', 'update',
+                    'document_view', 'policy_manage', 'audit_view', 'canary_manage', 'rag_query'
+                ]
+            },
+            {
+                'name': 'User',
+                'description': 'Standard user access',
+                'permissions': [
+                    'read', 'create',
+                    'document_view', 'document_upload', 'rag_query'
+                ]
+            },
+            {
+                'name': 'Read Only',
+                'description': 'View only access',
+                'permissions': [
+                    'read',
+                    'document_view', 'rag_query'
+                ]
+            }
+        ]
+        
+        created_roles = []
+        for role_def in roles_definitions:
+            role = RoleRepository.create_role(
+                organization_id=organization_id,
+                name=role_def['name'],
+                description=role_def['description'],
+                permissions=role_def['permissions']
+            )
+            created_roles.append(role)
+            
+        return created_roles
 
     @staticmethod
     def get_role_by_id(role_id):

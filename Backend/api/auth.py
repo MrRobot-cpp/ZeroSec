@@ -82,6 +82,10 @@ def register():
                     db.session.add(subscription)
                     db.session.flush()
 
+            # Create default roles for the new organization
+            from backend.database.repository import RoleRepository
+            RoleRepository.create_default_roles(org.organization_id)
+
         # Get default department
         dept = Department.query.filter_by(
             organization_id=org.organization_id

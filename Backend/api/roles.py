@@ -374,6 +374,11 @@ def get_available_permissions():
     try:
         # Define all available permissions
         permissions = [
+            {'name': 'admin', 'description': 'Full access to everything'},
+            {'name': 'create', 'description': 'Can create items'},
+            {'name': 'read', 'description': 'Can read items'},
+            {'name': 'update', 'description': 'Can update items'},
+            {'name': 'delete', 'description': 'Can delete items'},
             {'name': 'document_view', 'description': 'View documents'},
             {'name': 'document_upload', 'description': 'Upload documents'},
             {'name': 'document_delete', 'description': 'Delete documents'},

@@ -103,6 +103,9 @@ CMD_INJECTION_PATTERNS = [
     re.compile(r"\$\([^)]*(?:cat|rm|wget|curl|bash)[^)]*\)"),
 ]
 
+# Canary tokens used by the watermarking service for leak detection
+CANARY_TOKENS = ["zqxorin", "velmora", "kythrax"]
+
 # Exfiltration keywords - only when combined with action verbs
 EXFIL_KEYWORDS = [
     "password", "passwd", "private key", "private_key",
@@ -152,45 +155,47 @@ else:
     print(f"[firewall] PII pipeline not found at {PII_MODEL_PATH}; continuing with regex-only redaction.")
     print(f"[firewall] Expected path: {PII_MODEL_PATH.resolve()}")
 
-# Try to load AdvBench adversarial prompt detection model (optional)
+# Try to load AdvBench adversarial prompt detector (optional)
+_advbench_pipeline = None
 _advbench_model = None
 _advbench_vectorizer = None
 _advbench_is_keras = False
 
-# Try Keras model first
-if ADVBENCH_KERAS_PATH.exists():
+if ADVBENCH_MODEL_PATH.exists():
     try:
-        import tensorflow as tf
-        print(f"Loading AdvBench Keras model from {ADVBENCH_KERAS_PATH} ...")
-        _advbench_model = tf.keras.models.load_model(str(ADVBENCH_KERAS_PATH))
-        # Load the corresponding vectorizer from the pkl file
-        if ADVBENCH_MODEL_PATH.exists():
-            advbench_pipeline = joblib.load(str(ADVBENCH_MODEL_PATH))
-            _advbench_vectorizer = advbench_pipeline.get("vectorizer")
-        _advbench_is_keras = True
-        print("[firewall] AdvBench Keras model loaded successfully!")
-    except Exception as e:
-        print(f"[firewall] Failed to load AdvBench Keras model: {e}")
-        _advbench_model = None
-        _advbench_is_keras = False
+        print(f"Loading AdvBench adversarial detector from {ADVBENCH_MODEL_PATH} ...")
+        _advbench_pipeline = joblib.load(str(ADVBENCH_MODEL_PATH))
+        _advbench_vectorizer = _advbench_pipeline.get("vectorizer")
 
-# If Keras model failed, try sklearn model from pkl
-if _advbench_model is None and ADVBENCH_MODEL_PATH.exists():
-    try:
-        print(f"Loading AdvBench sklearn model from {ADVBENCH_MODEL_PATH} ...")
-        advbench_pipeline = joblib.load(str(ADVBENCH_MODEL_PATH))
-        _advbench_vectorizer = advbench_pipeline.get("vectorizer")
-        _advbench_model = advbench_pipeline.get("model")
-        if _advbench_model is not None:
-            print("[firewall] AdvBench sklearn model loaded successfully!")
+        # Check if it's a Keras model
+        if _advbench_pipeline.get("model_type") == "keras":
+            _advbench_is_keras = True
+            keras_path = _advbench_pipeline.get("model_path", str(ADVBENCH_KERAS_PATH))
+            if Path(keras_path).exists():
+                try:
+                    import tensorflow as tf
+                    _advbench_model = tf.keras.models.load_model(keras_path)
+                    print(f"[firewall] AdvBench Keras model loaded successfully!")
+                except ImportError:
+                    print(f"[firewall] TensorFlow not available, AdvBench model disabled")
+                    _advbench_model = None
+            else:
+                print(f"[firewall] Keras model not found at {keras_path}")
         else:
-            print("[firewall] Warning: AdvBench pipeline loaded but no model found")
-    except Exception as e:
-        print(f"[firewall] Failed to load AdvBench sklearn model: {e}")
-        _advbench_model = None
+            # sklearn model stored directly in pipeline
+            _advbench_model = _advbench_pipeline.get("model")
+            if _advbench_model is not None:
+                print(f"[firewall] AdvBench sklearn model loaded successfully!")
 
-if _advbench_model is None:
-    print("[firewall] AdvBench model not available; continuing without adversarial detection.")
+        if _advbench_model is not None:
+            accuracy = _advbench_pipeline.get("accuracy", "N/A")
+            print(f"[firewall] AdvBench model accuracy: {accuracy}")
+    except Exception as e:
+        print(f"[firewall] Failed to load AdvBench model: {e}")
+        _advbench_pipeline = None
+else:
+    print(f"[firewall] AdvBench model not found at {ADVBENCH_MODEL_PATH}")
+    print(f"[firewall] Run the training notebook to create it: backend/models/train_advbench_model.ipynb")
 
 print("Firewall Ready ✅")
 

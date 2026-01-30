@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, Response
+from flask_jwt_extended import jwt_required
 from flask_cors import CORS
 import os
 
@@ -61,14 +62,20 @@ def query_route():
     return jsonify(result)
 
 @app.route("/logs")
+@jwt_required()
 def logs():
     """Legacy logs endpoint - returns both firewall logs and audit logs"""
     try:
         from backend.database.models import AuditLog
         from backend.database.db import db
+        from backend.utils.rbac import get_current_organization_id
+        
+        organization_id = get_current_organization_id()
 
-        # Get audit logs
-        audit_logs = AuditLog.query.order_by(AuditLog.created_at.desc()).limit(100).all()
+        # Get audit logs filtered by organization
+        audit_logs = AuditLog.query.filter_by(
+            organization_id=organization_id
+        ).order_by(AuditLog.created_at.desc()).limit(100).all()
 
         # Get firewall logs
         combined_logs = get_logs()
@@ -98,6 +105,7 @@ def logs():
         print(f"Error in /logs endpoint: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
         # Fallback to original firewall logs only
         return jsonify(get_logs())
 

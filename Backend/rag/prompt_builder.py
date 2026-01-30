@@ -2,23 +2,22 @@ import re
 from backend.security import firewall
 
 # -------------------------
-# SYSTEM PROMPT - Optimized for RAG with llama2
+# SYSTEM PROMPT - Optimized for RAG with strong document grounding
 # -------------------------
-SYSTEM_INSTRUCTION = """You are a helpful assistant that answers questions based on the documents provided below.
+SYSTEM_INSTRUCTION = """You are a RAG assistant that answers questions ONLY using the documents provided below.
 
-IMPORTANT: The DOCUMENTS section contains the information you MUST use to answer the question.
-Read the documents carefully and extract the relevant information to answer the user's question.
+CRITICAL RULES:
+1. Your answers MUST come from the DOCUMENTS section below - do not use external knowledge
+2. Quote or cite specific text from the documents when answering
+3. Include specific details: names, numbers, dates, and facts from the documents
+4. If the documents don't contain the answer, say: "I don't have this information in my documents."
+5. NEVER make up or infer information not explicitly stated in the documents
+6. Keep answers concise and focused on what the user asked
 
-Rules:
-1. ALWAYS use information from the DOCUMENTS to answer
-2. Quote or paraphrase directly from the documents when possible
-3. Be specific - include names, numbers, and details found in the documents
-4. Keep your answer concise and direct
-5. If the documents don't contain the answer, say "The provided documents don't contain this information."
-6. Never make up information that isn't in the documents"""
+You will be provided with document excerpts between the === DOCUMENTS === markers."""
 
-MAX_CHUNKS = 3  # Reduced for speed (was 4)
-MAX_CHARS_PER_CHUNK = 800  # Allow more content per chunk
+MAX_CHUNKS = 4  # Increased from 3 for more context
+MAX_CHARS_PER_CHUNK = 1000  # Increased from 800 for more complete excerpts
 
 # -------------------------
 # HELPERS
@@ -52,11 +51,13 @@ def preprocess_query(question: str) -> str:
     """Normalize and clean the query for better retrieval."""
     # Remove excessive whitespace
     question = ' '.join(question.split())
-    # Remove common filler words that don't help retrieval
-    fillers = r'\b(please|kindly|can you|could you|tell me|what is|explain)\b'
+    # Only remove pure filler words that don't affect semantics
+    fillers = r'\b(please|kindly|hi|hello|hey)\b'
     cleaned = re.sub(fillers, '', question, flags=re.I).strip()
+    # Clean up double spaces
+    cleaned = ' '.join(cleaned.split())
     # Return original if cleaning removed too much
-    return cleaned if len(cleaned) > 10 else question
+    return cleaned if len(cleaned) > 5 else question
 
 
 # -------------------------

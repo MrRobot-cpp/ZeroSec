@@ -17,10 +17,10 @@ EMBEDDING_MODEL = "nomic-embed-text"  # Proper embedding model for semantic sear
 CHUNK_SIZE = 1000  # Larger chunks = fewer chunks, more context per chunk
 CHUNK_OVERLAP = 100  # Overlap to maintain context between chunks
 
-# Retriever config
-TOP_K = 6  # Max chunks to consider initially (before filtering)
-DISTANCE_THRESHOLD = 1.0  # Maximum distance to include (lower = more similar, nomic-embed uses ~0.5-1.5 range)
-MAX_RESULTS = 3  # Maximum results to return after filtering
+# Retriever config - tuned for better precision
+TOP_K = 8  # Increased from 6: retrieve more candidates for better filtering
+DISTANCE_THRESHOLD = 0.85  # Lowered from 1.0: more precise semantic matches only
+MAX_RESULTS = 4  # Increased from 3: return more context for complex queries
 
 # Global cache
 _vectorstore_cache = None

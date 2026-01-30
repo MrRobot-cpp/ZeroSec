@@ -1,7 +1,8 @@
 """
-ZeroSec Firewall — Optimized Security Module
-- Prompt-injection detection (using PromptInjectionDetector + pattern matching)
-- SQL/XSS/Command injection detection
+ZeroSec Firewall — ML-First Security Module
+- ML Ensemble Detection: BERT + pytector (DeBERTa) + AdvBench
+- Prompt-injection detection using weighted ML ensemble
+- SQL/XSS/Command injection detection (regex as fallback signal)
 - Document inspection and PII redaction (regex + optional ML model)
 - LRU caching for performance
 - Provides small API:
@@ -19,36 +20,59 @@ from pathlib import Path
 from pytector import PromptInjectionDetector
 import joblib
 import os
+import torch
 
 # -------------------------
 # CONFIG
 # -------------------------
 MODEL = "deberta"
-INJECTION_THRESHOLD = 0.85  # Very high threshold - only block obvious attacks
-MIN_TEXT_LENGTH_FOR_ML = 100  # Only use ML model for longer texts
+# ML Ensemble thresholds (lowered for better detection)
+INJECTION_THRESHOLD = 0.65  # Lowered from 0.85 - ensemble will catch more
+BERT_CONFIDENCE_THRESHOLD = 0.55  # BERT model threshold (new)
+PYTECTOR_CONFIDENCE_THRESHOLD = 0.70  # pytector threshold
+ADVBENCH_CONFIDENCE_THRESHOLD = 0.50  # Raised slightly for precision
+
+# Ensemble weights (must sum to 1.0)
+BERT_WEIGHT = 0.45  # Fine-tuned BERT is most powerful
+PYTECTOR_WEIGHT = 0.30  # pytector (DeBERTa)
+ADVBENCH_WEIGHT = 0.25  # AdvBench detector
+
+MIN_TEXT_LENGTH_FOR_ML = 20  # Lowered from 100 to catch short attacks
 SANITIZE_ON_QUARANTINE = True
-# Use absolute path for PII model
+# Use absolute path for models
 BASE_DIR = Path(__file__).resolve().parents[1]  # Backend directory
+BERT_MODEL_PATH = BASE_DIR / "models" / "bert_prompt_injection_model"
 PII_MODEL_PATH = BASE_DIR / "models" / "pii_pipeline.pkl"
 ADVBENCH_MODEL_PATH = BASE_DIR / "models" / "advbench_detector.pkl"
 ADVBENCH_KERAS_PATH = BASE_DIR / "models" / "advbench_keras_model.keras"
 ML_PII_CONFIDENCE_THRESHOLD = 0.9
-ADVBENCH_CONFIDENCE_THRESHOLD = 0.45  # Lowered to catch more adversarial prompts
 CACHE_SIZE = 512  # LRU cache size for detection results
 
 # -------------------------
 # PATTERNS (Tuned to reduce false positives)
 # -------------------------
 
-# PII and Secrets patterns - only high-confidence patterns
+# PII and Secrets patterns - comprehensive coverage
 SECRET_PATTERNS = {
-    "email": re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"),
-    "cc_like": re.compile(r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b"),  # Luhn-like card numbers
-    "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),  # Stricter SSN with dashes required
+    # Contact info
+    "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
+    "phone": re.compile(r"\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b"),  # US phone
+    "phone_intl": re.compile(r"\b\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}\b"),  # International
+    
+    # Identity
+    "ssn": re.compile(r"\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b"),  # SSN with optional dashes/spaces
+    "cc_like": re.compile(r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b"),
+    
+    # Address components
+    "zipcode": re.compile(r"\b\d{5}(?:-\d{4})?\b"),  # US ZIP code
+    "street_address": re.compile(r"\b\d{1,5}\s+(?:[A-Za-z]+\s+){1,4}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Place|Pl)\.?\b", re.I),
+    
+    # Secrets/tokens
     "aws_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     "jwt": re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
     "private_key": re.compile(r"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----"),
     "bearer_token": re.compile(r"Bearer\s+[A-Za-z0-9_-]{20,}", re.I),
+    "api_key": re.compile(r"\b(?:api[_-]?key|apikey|secret[_-]?key)[\s:=]+['\"]?[A-Za-z0-9_-]{16,}['\"]?", re.I),
 }
 
 # Prompt injection patterns - focused on actual attacks
@@ -123,39 +147,65 @@ CANARY_TOKENS = [
 # -------------------------
 # INITIALIZE MODELS
 # -------------------------
-print("Loading pytector (DeBERTa) model...")
-_detector = PromptInjectionDetector(model_name_or_url=MODEL)
-print("[firewall] pytector + AdvBench both enabled for detection")
+print("[firewall] Initializing ML Ensemble Detection...")
 
-# Try to load ML PII pipeline (optional)
+# 1. Load pytector (DeBERTa) model
+print("[firewall] Loading pytector (DeBERTa) model...")
+_detector = PromptInjectionDetector(model_name_or_url=MODEL)
+print("[firewall] [OK] pytector loaded")
+
+# 2. Load fine-tuned BERT prompt injection model (PRIMARY DETECTOR)
+_bert_model = None
+_bert_tokenizer = None
+_bert_device = None
+
+if BERT_MODEL_PATH.exists():
+    try:
+        print(f"[firewall] Loading BERT prompt injection model from {BERT_MODEL_PATH} ...")
+        from transformers import BertForSequenceClassification, BertTokenizerFast
+        
+        _bert_tokenizer = BertTokenizerFast.from_pretrained(str(BERT_MODEL_PATH))
+        _bert_model = BertForSequenceClassification.from_pretrained(str(BERT_MODEL_PATH))
+        _bert_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        _bert_model.to(_bert_device)
+        _bert_model.eval()  # Set to evaluation mode
+        
+        print(f"[firewall] [OK] BERT model loaded on {_bert_device}")
+        print(f"[firewall]   Model: {_bert_model.config.architectures}")
+        print(f"[firewall]   Labels: {_bert_model.config.id2label}")
+    except Exception as e:
+        print(f"[firewall] [X] Failed to load BERT model: {e}")
+        _bert_model = None
+else:
+    print(f"[firewall] [X] BERT model not found at {BERT_MODEL_PATH}")
+    print(f"[firewall]   Train it using: backend/experiments/train_advbench_model.ipynb")
+
+# 3. Load ML PII pipeline (optional)
 _pii_pipeline = None
 _pii_model = None
 _pii_vectorizer = None
 if PII_MODEL_PATH.exists():
     try:
-        print(f"Loading ML-based PII pipeline from {PII_MODEL_PATH} ...")
+        print(f"[firewall] Loading ML-based PII pipeline...")
         _pii_pipeline = joblib.load(str(PII_MODEL_PATH))
-        # pipeline expected to contain {"vectorizer": ..., "models": {"Random Forest": model, ...}}
         _pii_vectorizer = _pii_pipeline.get("vectorizer")
         _pii_model = _pii_pipeline.get("models", {}).get("Random Forest", None)
         if _pii_model is None:
-            # fallback: try to pick any model in the dict
             models = _pii_pipeline.get("models", {})
             if models:
                 _pii_model = list(models.values())[0]
 
         if _pii_model is not None:
-            print(f"[firewall] ML PII model loaded successfully!")
+            print(f"[firewall] [OK] PII model loaded")
         else:
-            print(f"[firewall] Warning: Pipeline loaded but no model found")
+            print(f"[firewall] [!] Pipeline loaded but no model found")
     except Exception as e:
-        print(f"[firewall] Failed to load ML pipeline: {e}")
+        print(f"[firewall] [X] Failed to load PII pipeline: {e}")
         _pii_pipeline = None
 else:
-    print(f"[firewall] PII pipeline not found at {PII_MODEL_PATH}; continuing with regex-only redaction.")
-    print(f"[firewall] Expected path: {PII_MODEL_PATH.resolve()}")
+    print(f"[firewall] [!] PII pipeline not found; using regex-only redaction")
 
-# Try to load AdvBench adversarial prompt detector (optional)
+# 4. Load AdvBench adversarial prompt detector
 _advbench_pipeline = None
 _advbench_model = None
 _advbench_vectorizer = None
@@ -163,11 +213,10 @@ _advbench_is_keras = False
 
 if ADVBENCH_MODEL_PATH.exists():
     try:
-        print(f"Loading AdvBench adversarial detector from {ADVBENCH_MODEL_PATH} ...")
+        print(f"[firewall] Loading AdvBench adversarial detector...")
         _advbench_pipeline = joblib.load(str(ADVBENCH_MODEL_PATH))
         _advbench_vectorizer = _advbench_pipeline.get("vectorizer")
 
-        # Check if it's a Keras model
         if _advbench_pipeline.get("model_type") == "keras":
             _advbench_is_keras = True
             keras_path = _advbench_pipeline.get("model_path", str(ADVBENCH_KERAS_PATH))
@@ -175,29 +224,34 @@ if ADVBENCH_MODEL_PATH.exists():
                 try:
                     import tensorflow as tf
                     _advbench_model = tf.keras.models.load_model(keras_path)
-                    print(f"[firewall] AdvBench Keras model loaded successfully!")
+                    print(f"[firewall] [OK] AdvBench Keras model loaded")
                 except ImportError:
-                    print(f"[firewall] TensorFlow not available, AdvBench model disabled")
+                    print(f"[firewall] [X] TensorFlow not available")
                     _advbench_model = None
             else:
-                print(f"[firewall] Keras model not found at {keras_path}")
+                print(f"[firewall] [X] Keras model not found at {keras_path}")
         else:
-            # sklearn model stored directly in pipeline
             _advbench_model = _advbench_pipeline.get("model")
             if _advbench_model is not None:
-                print(f"[firewall] AdvBench sklearn model loaded successfully!")
+                print(f"[firewall] [OK] AdvBench sklearn model loaded")
 
         if _advbench_model is not None:
             accuracy = _advbench_pipeline.get("accuracy", "N/A")
-            print(f"[firewall] AdvBench model accuracy: {accuracy}")
+            print(f"[firewall]   Accuracy: {accuracy}")
     except Exception as e:
-        print(f"[firewall] Failed to load AdvBench model: {e}")
+        print(f"[firewall] [X] Failed to load AdvBench model: {e}")
         _advbench_pipeline = None
 else:
-    print(f"[firewall] AdvBench model not found at {ADVBENCH_MODEL_PATH}")
-    print(f"[firewall] Run the training notebook to create it: backend/models/train_advbench_model.ipynb")
+    print(f"[firewall] [!] AdvBench model not found")
 
-print("Firewall Ready ✅")
+# Print ensemble status
+print("[firewall] ========================================")
+print("[firewall] ML Ensemble Status:")
+print(f"[firewall]   BERT:     {'[OK] ENABLED' if _bert_model else '[X] DISABLED'} (weight: {BERT_WEIGHT})")
+print(f"[firewall]   pytector: [OK] ENABLED (weight: {PYTECTOR_WEIGHT})")
+print(f"[firewall]   AdvBench: {'[OK] ENABLED' if _advbench_model else '[X] DISABLED'} (weight: {ADVBENCH_WEIGHT})")
+print("[firewall] ========================================")
+print("[firewall] Firewall Ready!")
 
 # Stats + queue
 stats = {"total_queries": 0, "total_blocks": 0}
@@ -268,12 +322,22 @@ def _check_canary_tokens(text: str) -> bool:
     return False
 
 
-def _sanitize_regex(text: str) -> str:
-    """Sanitize text by redacting sensitive patterns."""
+def redact_pii(text: str) -> str:
+    """
+    Public API: Redact PII from text using the configured patterns.
+    Replaces sensitive data with <REDACTED> as requested.
+    """
+    if not text:
+        return ""
     out = text
     for name, rx in SECRET_PATTERNS.items():
-        out = rx.sub(f"<REDACTED:{name}>", out)
+        # Use generic <REDACTED> as requested by user
+        out = rx.sub("<REDACTED>", out)
     return out
+
+
+# Alias for backward compatibility
+sanitize_text = redact_pii
 
 
 def _detect_pii_ml(text: str) -> tuple:
@@ -291,6 +355,62 @@ def _detect_pii_ml(text: str) -> tuple:
             return bool(pred[0]), 1.0
     except Exception as e:
         print(f"[firewall] ML PII detection error: {e}")
+        return False, 0.0
+
+
+def _detect_bert_injection(text: str) -> tuple:
+    """
+    Detect prompt injection using fine-tuned BERT model.
+    Returns (is_harmful: bool, confidence: float)
+    """
+    if _bert_model is None or _bert_tokenizer is None:
+        return False, 0.0
+
+    try:
+        # Tokenize input
+        inputs = _bert_tokenizer(
+            text,
+            truncation=True,
+            padding=True,
+            max_length=64,  # Match training config
+            return_tensors="pt"
+        )
+        inputs = {k: v.to(_bert_device) for k, v in inputs.items()}
+
+        # Get prediction
+        with torch.no_grad():
+            outputs = _bert_model(**inputs)
+            logits = outputs.logits
+            probs = torch.softmax(logits, dim=-1)
+            # Label 1 = HARMFUL
+            harmful_prob = float(probs[0][1].cpu())
+
+        is_harmful = harmful_prob >= BERT_CONFIDENCE_THRESHOLD
+        return is_harmful, harmful_prob
+
+    except Exception as e:
+        print(f"[firewall] BERT detection error: {e}")
+        return False, 0.0
+
+
+def _detect_pytector(text: str) -> tuple:
+    """
+    Detect prompt injection using pytector (DeBERTa).
+    Returns (is_injection: bool, confidence: float)
+    """
+    try:
+        result = _detector.detect_injection(text)
+        # pytector returns a dict with 'is_injection' and 'probability'
+        if isinstance(result, dict):
+            confidence = float(result.get('probability', 0.0))
+            is_injection = result.get('is_injection', False) or confidence >= PYTECTOR_CONFIDENCE_THRESHOLD
+        else:
+            # Fallback for other return types
+            confidence = float(result) if isinstance(result, (int, float)) else 0.0
+            is_injection = confidence >= PYTECTOR_CONFIDENCE_THRESHOLD
+        return is_injection, confidence
+    except Exception as e:
+        print(f"[firewall] pytector detection error: {e}")
         return False, 0.0
 
 
@@ -333,14 +453,16 @@ _injection_cache = {}
 # -------------------------
 def detect_injection(text: str) -> tuple:
     """
-    Injection detection combining:
-    1. Pattern-based detection (SQL, XSS, command injection, prompt injection)
-    2. ML-based adversarial prompt detection (AdvBench model)
+    ML Ensemble Injection Detection.
+    Combines predictions from:
+    - BERT fine-tuned model (weight: 0.45)
+    - pytector DeBERTa (weight: 0.30)
+    - AdvBench detector (weight: 0.25)
 
-    Returns (is_injection: bool, score: float)
+    Returns (is_injection: bool, ensemble_score: float)
     """
-    # Always allow empty or short text (normal queries)
-    if not text or len(text.strip()) < 30:
+    # Allow very short text (greetings, etc.)
+    if not text or len(text.strip()) < MIN_TEXT_LENGTH_FOR_ML:
         return False, 0.0
 
     # Check cache first
@@ -348,24 +470,65 @@ def detect_injection(text: str) -> tuple:
     if text_hash in _injection_cache:
         return _injection_cache[text_hash]
 
-    # 1. Pattern-based detection
-    pattern_detected, attack_type, pattern_score = _check_injection_patterns(text)
+    # --- ML Ensemble Detection ---
+    scores = {}
+    detections = {}
 
-    # 2. ML-based adversarial detection (AdvBench model)
+    # 1. BERT detection (primary - most accurate)
+    bert_detected, bert_score = _detect_bert_injection(text)
+    scores['bert'] = bert_score
+    detections['bert'] = bert_detected
+
+    # 2. pytector (DeBERTa) detection
+    pytector_detected, pytector_score = _detect_pytector(text)
+    scores['pytector'] = pytector_score
+    detections['pytector'] = pytector_detected
+
+    # 3. AdvBench detection
     advbench_detected, advbench_score = _detect_adversarial_ml(text)
+    scores['advbench'] = advbench_score
+    detections['advbench'] = advbench_detected
 
-    # Combine results - either detection triggers blocking
-    if pattern_detected:
-        result = (True, pattern_score)
-        if advbench_detected:
-            print(f"[firewall] BLOCKED: Pattern ({attack_type}) + AdvBench ({advbench_score:.2f})")
-        else:
-            print(f"[firewall] BLOCKED: Pattern match ({attack_type})")
-    elif advbench_detected:
-        result = (True, advbench_score)
-        print(f"[firewall] BLOCKED: AdvBench adversarial detection ({advbench_score:.2f})")
-    else:
-        result = (False, max(pattern_score, advbench_score))
+    # Calculate weighted ensemble score
+    total_weight = 0.0
+    weighted_sum = 0.0
+
+    if _bert_model is not None:
+        weighted_sum += BERT_WEIGHT * bert_score
+        total_weight += BERT_WEIGHT
+
+    weighted_sum += PYTECTOR_WEIGHT * pytector_score
+    total_weight += PYTECTOR_WEIGHT
+
+    if _advbench_model is not None:
+        weighted_sum += ADVBENCH_WEIGHT * advbench_score
+        total_weight += ADVBENCH_WEIGHT
+
+    # Normalize by total active weight
+    ensemble_score = weighted_sum / total_weight if total_weight > 0 else 0.0
+
+    # Determine if blocked based on ensemble score
+    is_injection = ensemble_score >= INJECTION_THRESHOLD
+
+    # Also block if any single model is very confident
+    high_confidence_block = (
+        (bert_detected and bert_score >= 0.85) or
+        (pytector_detected and pytector_score >= 0.90) or
+        (advbench_detected and advbench_score >= 0.80)
+    )
+
+    if high_confidence_block and not is_injection:
+        is_injection = True
+        ensemble_score = max(ensemble_score, 0.8)
+
+    # Logging
+    if is_injection:
+        active_detectors = [k for k, v in detections.items() if v]
+        print(f"[firewall] BLOCKED (ensemble={ensemble_score:.2f})")
+        print(f"[firewall]   Detectors: {active_detectors}")
+        print(f"[firewall]   Scores: BERT={bert_score:.2f}, pytector={pytector_score:.2f}, AdvBench={advbench_score:.2f}")
+
+    result = (is_injection, ensemble_score)
 
     # Cache result
     _injection_cache[text_hash] = result
@@ -401,7 +564,7 @@ def inspect_text(text: str) -> dict:
         action = "ALLOW"
         reason = "clean" if not patterns else "pii_sanitized"
 
-    sanitized = _sanitize_regex(text) if patterns else text
+    sanitized = redact_pii(text) if patterns else text
 
     result = {
         "original": text,
@@ -469,7 +632,7 @@ def inspect_document_text(text: str) -> dict:
             print(f"[firewall] ML PII detected with confidence {ml_confidence:.2f}")
 
     # Always include, just sanitize sensitive data
-    safe_text = _sanitize_regex(text)
+    safe_text = redact_pii(text)
 
     # Determine reason based on detection results
     if patterns or ml_pii_detected:
@@ -488,9 +651,7 @@ def inspect_document_text(text: str) -> dict:
     }
 
 
-def sanitize_text(text: str) -> str:
-    """Sanitize text by redacting PII and secrets."""
-    return _sanitize_regex(text)
+
 
 
 def clear_cache():

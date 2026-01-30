@@ -178,14 +178,8 @@ def query_rag(question: str) -> dict:
             "sources": used_sources
         }
 
-    # 7. PII enforcement
-    entities = extract_entities_from_question(question)
-    subject = extract_subject_name(question)
-
-    if entities and subject:
-        final_answer = f"{subject}'s {entities[0]} is <REDACTED>"
-    else:
-        final_answer = firewall.sanitize_text(answer)
+    # 7. PII enforcement (Redact sensitive info but keep the answer)
+    final_answer = firewall.redact_pii(answer)
 
     return {
         "decision": "ALLOW",

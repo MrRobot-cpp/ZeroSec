@@ -45,6 +45,30 @@ BERT_MODEL_PATH = BASE_DIR / "models" / "bert_prompt_injection_model"
 PII_MODEL_PATH = BASE_DIR / "models" / "pii_pipeline.pkl"
 ADVBENCH_MODEL_PATH = BASE_DIR / "models" / "advbench_detector.pkl"
 ADVBENCH_KERAS_PATH = BASE_DIR / "models" / "advbench_keras_model.keras"
+
+
+def _ensure_models_present() -> None:
+    """Download any missing models from HuggingFace Hub on first run."""
+    missing = []
+    if not BERT_MODEL_PATH.exists():
+        missing.append("bert_injection")
+    if not PII_MODEL_PATH.exists():
+        missing.append("pii_pipeline")
+    if not ADVBENCH_MODEL_PATH.exists():
+        missing.append("advbench_detector")
+
+    if not missing:
+        return
+
+    print(f"[firewall] Missing models: {missing}")
+    print("[firewall] Downloading from HuggingFace Hub (one-time setup)...")
+    try:
+        from backend.scripts.download_models import download_model
+        for key in missing:
+            download_model(key)
+    except Exception as e:
+        print(f"[firewall] [!] Auto-download failed: {e}")
+        print("[firewall]     Run manually: python -m backend.scripts.download_models")
 ML_PII_CONFIDENCE_THRESHOLD = 0.9
 CACHE_SIZE = 512  # LRU cache size for detection results
 
@@ -147,6 +171,7 @@ CANARY_TOKENS = [
 # -------------------------
 # INITIALIZE MODELS
 # -------------------------
+_ensure_models_present()
 print("[firewall] Initializing ML Ensemble Detection...")
 
 # 1. Load pytector (DeBERTa) model
@@ -178,7 +203,7 @@ if BERT_MODEL_PATH.exists():
         _bert_model = None
 else:
     print(f"[firewall] [X] BERT model not found at {BERT_MODEL_PATH}")
-    print(f"[firewall]   Train it using: backend/experiments/train_advbench_model.ipynb")
+    print("[firewall]   Download: python -m backend.scripts.download_models")
 
 # 3. Load ML PII pipeline (optional)
 _pii_pipeline = None

@@ -1,6 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "./Sidebar";
+import policyService from "@/services/policyService";
+import apiClient from "@/services/apiClient";
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState("integrations");
@@ -73,6 +75,106 @@ export default function Settings() {
 // Integrations Tab
 function IntegrationsTab() {
   const [expandedSection, setExpandedSection] = useState(null);
+  const [activeProvider, setActiveProvider] = useState(null);
+
+  // RAG Provider config state
+  const [policyId, setPolicyId] = useState(null);
+  const [formState, setFormState] = useState({
+    provider: "local",
+    groq_api_key: "",
+    groq_llm_model: "llama-3.1-8b-instant",
+    qdrant_url: "",
+    qdrant_api_key: "",
+    qdrant_collection: "",
+  });
+  const [hasExistingKeys, setHasExistingKeys] = useState({ groq: false, qdrant: false });
+  const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [saveMsg, setSaveMsg] = useState("");
+
+  const refreshHealth = () => {
+    apiClient.get("/api/rag/health")
+      .then((r) => r.json())
+      .then((data) => setActiveProvider(data))
+      .catch(() => setActiveProvider(null));
+  };
+
+  useEffect(() => {
+    refreshHealth();
+    policyService.getPoliciesByType("rag_provider")
+      .then((policies) => {
+        if (policies.length > 0) {
+          const policy = policies[0];
+          setPolicyId(policy.policy_id);
+          const cfg = policy.config || {};
+          setFormState((prev) => ({
+            ...prev,
+            provider: cfg.provider || "local",
+            groq_llm_model: cfg.groq_llm_model || "llama-3.1-8b-instant",
+            qdrant_url: cfg.qdrant_url || "",
+            qdrant_collection: cfg.qdrant_collection || "",
+            // Leave password fields empty — masked value means key exists
+            groq_api_key: "",
+            qdrant_api_key: "",
+          }));
+          setHasExistingKeys({
+            groq: !!cfg.groq_api_key,
+            qdrant: !!cfg.qdrant_api_key,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormState((prev) => ({ ...prev, [name]: value }));
+    setTestResult(null);
+    setSaveMsg("");
+  };
+
+  const handleTest = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const resp = await apiClient.post("/api/rag/test", formState);
+      const data = await resp.json();
+      setTestResult(data);
+    } catch (e) {
+      setTestResult({ status: "error", error: e.message });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveMsg("");
+    try {
+      // Omit empty strings so the backend keeps existing API keys
+      const config = {};
+      for (const [k, v] of Object.entries(formState)) {
+        if (v !== "") config[k] = v;
+      }
+      if (policyId) {
+        await policyService.updatePolicy(policyId, { config });
+      } else {
+        const created = await policyService.createPolicy({
+          policy_type: "rag_provider",
+          config,
+          enabled: true,
+        });
+        setPolicyId(created.policy_id);
+      }
+      setSaveMsg("Configuration saved.");
+      refreshHealth();
+    } catch (e) {
+      setSaveMsg(`Error: ${e.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const integrations = {
     vectorDB: {
@@ -176,6 +278,167 @@ function IntegrationsTab() {
 
   return (
     <div className="space-y-6">
+      {/* Active provider status banner */}
+      {activeProvider && (
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border text-sm
+          ${activeProvider.status === "ok"
+            ? "bg-green-900/20 border-green-800 text-green-300"
+            : "bg-red-900/20 border-red-800 text-red-300"}`}>
+          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${activeProvider.status === "ok" ? "bg-green-400" : "bg-red-400"}`} />
+          <span>
+            <span className="font-semibold">Active RAG provider: </span>
+            {activeProvider.provider === "external"
+              ? `External — LLM: ${activeProvider.llm}, VectorDB: ${activeProvider.vector_db}`
+              : `Local — LLM: ${activeProvider.llm}, VectorDB: ${activeProvider.vector_db}`}
+          </span>
+        </div>
+      )}
+
+      {/* RAG Provider Configuration */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <h3 className="text-lg font-semibold mb-1">RAG Provider</h3>
+        <p className="text-sm text-gray-400 mb-5">
+          Configure which LLM and vector database ZeroSec uses for the RAG pipeline.
+          All queries pass through ZeroSec&apos;s security layer regardless of provider.
+        </p>
+
+        {/* Mode selection */}
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          {[
+            { value: "local", label: "Local (Ollama + Chroma)", desc: "No API keys needed. Requires Ollama running locally." },
+            { value: "external", label: "External API (Free)", desc: "Groq LLM + Qdrant Cloud. Sign up free at groq.com and cloud.qdrant.io." },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => handleChange({ target: { name: "provider", value: opt.value } })}
+              className={`text-left p-4 rounded-lg border transition-colors ${
+                formState.provider === opt.value
+                  ? "border-blue-500 bg-blue-600/10 text-white"
+                  : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600"
+              }`}
+            >
+              <div className="font-medium text-sm mb-1">{opt.label}</div>
+              <div className="text-xs text-gray-500">{opt.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {/* External config fields */}
+        {formState.provider === "external" && (
+          <div className="space-y-6">
+            {/* Groq */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <h4 className="text-sm font-semibold text-gray-300">Groq API — LLM</h4>
+                <a
+                  href="https://console.groq.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300"
+                >
+                  Get free API key ↗
+                </a>
+              </div>
+              <div className="space-y-3">
+                <input
+                  type="password"
+                  name="groq_api_key"
+                  value={formState.groq_api_key}
+                  onChange={handleChange}
+                  placeholder={hasExistingKeys.groq ? "API key saved — enter new key to update" : "Groq API Key (gsk_...)"}
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <select
+                  name="groq_llm_model"
+                  value={formState.groq_llm_model}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                >
+                  <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (recommended)</option>
+                  <option value="llama-3.1-70b-versatile">Llama 3.1 70B Versatile</option>
+                  <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Qdrant */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <h4 className="text-sm font-semibold text-gray-300">Qdrant Cloud — Vector Database</h4>
+                <a
+                  href="https://cloud.qdrant.io"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-blue-400 hover:text-blue-300"
+                >
+                  Get free cluster ↗
+                </a>
+              </div>
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  name="qdrant_url"
+                  value={formState.qdrant_url}
+                  onChange={handleChange}
+                  placeholder="Cluster URL (https://xxx.qdrant.io:6333)"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <input
+                  type="password"
+                  name="qdrant_api_key"
+                  value={formState.qdrant_api_key}
+                  onChange={handleChange}
+                  placeholder={hasExistingKeys.qdrant ? "API key saved — enter new key to update" : "Qdrant API Key"}
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <input
+                  type="text"
+                  name="qdrant_collection"
+                  value={formState.qdrant_collection}
+                  onChange={handleChange}
+                  placeholder="Collection name (default: zerosec_docs)"
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-3 mt-6">
+          {formState.provider === "external" && (
+            <button
+              onClick={handleTest}
+              disabled={isTesting}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-md text-sm font-medium transition-colors"
+            >
+              {isTesting ? "Testing..." : "Test Connection"}
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md text-sm font-medium transition-colors"
+          >
+            {isSaving ? "Saving..." : "Save Configuration"}
+          </button>
+        </div>
+
+        {/* Feedback */}
+        {testResult && (
+          <div className={`mt-3 text-sm px-3 py-2 rounded-md ${testResult.status === "ok" ? "bg-green-900/30 text-green-400" : "bg-red-900/30 text-red-400"}`}>
+            {testResult.status === "ok"
+              ? `Connected — LLM: ${testResult.llm}, VectorDB: ${testResult.vector_db}`
+              : `Connection failed: ${testResult.error}`}
+          </div>
+        )}
+        {saveMsg && (
+          <div className={`mt-3 text-sm ${saveMsg.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>
+            {saveMsg}
+          </div>
+        )}
+      </div>
+
       {Object.entries(integrations).map(([key, category]) => (
         <div key={key} className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
           <div className="p-6">

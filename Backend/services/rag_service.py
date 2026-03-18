@@ -1,5 +1,4 @@
-import ollama
-from backend.rag.retriever import build_retriever, retrieve_with_scores, _ensure_vectorstore
+from backend.rag.providers import get_provider
 from backend.rag.prompt_builder import (
     build_safe_context,
     build_prompt,
@@ -9,18 +8,6 @@ from backend.rag.prompt_builder import (
     preprocess_query
 )
 from backend.security import firewall
-
-# -------------------------
-# LLM CONFIG - Optimized for RAG
-# -------------------------
-LLM_MODEL = "llama2"
-LLM_OPTIONS = {
-    "temperature": 0.3,      # Slightly higher for better comprehension
-    "top_p": 0.9,            # Nucleus sampling
-    "top_k": 40,             # Limit token choices
-    "num_predict": 256,      # Shorter responses for conciseness
-    "repeat_penalty": 1.15,  # Reduce repetition
-}
 
 # Debug mode - set to True to see prompts being sent to LLM
 DEBUG_RAG = True
@@ -43,9 +30,33 @@ def is_conversational(text: str) -> bool:
             return True
     return False
 
-def refresh_retriever():
-    """Force refresh retriever (call after document changes)."""
-    _ensure_vectorstore(force_reload=True)
+def refresh_retriever(new_file_path=None, deleted_filename=None):
+    """
+    Force refresh the vector store after document changes.
+
+    Args:
+        new_file_path: Path to a newly uploaded file (incremental ingest).
+        deleted_filename: Filename of a deleted document (targeted removal).
+        If neither is given, performs a full rebuild from all docs on disk.
+    """
+    provider = get_provider()
+    if deleted_filename:
+        provider.delete_documents([deleted_filename])
+    elif new_file_path:
+        from backend.rag.retriever import extract_text_from_file
+        from langchain_core.documents import Document
+        from pathlib import Path
+        path = Path(new_file_path)
+        text = extract_text_from_file(path)
+        if text and text.strip():
+            doc = Document(
+                page_content=text,
+                metadata={"source": str(path), "filename": path.name, "file_type": path.suffix}
+            )
+            provider.ingest_documents([doc])
+    else:
+        from backend.rag.retriever import load_all_documents
+        provider.ingest_documents(load_all_documents())
 
 
 def query_rag(question: str) -> dict:
@@ -97,7 +108,9 @@ def query_rag(question: str) -> dict:
 
     # 3. Retrieve relevant chunks with relevance filtering
     # Only returns documents above the relevance threshold
-    results_with_scores = retrieve_with_scores(processed_query)
+    provider = get_provider()
+    results = provider.retrieve(processed_query)
+    results_with_scores = [(r.document, r.similarity_score) for r in results]
 
     # If no relevant documents found, respond without RAG context
     if not results_with_scores:
@@ -151,17 +164,14 @@ def query_rag(question: str) -> dict:
 
     # Note: Skip firewall check on internally-built prompt (only check user input)
 
-    # 6. LLM call with optimized parameters
+    # 6. LLM call via provider (local: Ollama | external: Groq)
     try:
-        response = ollama.generate(
-            model=LLM_MODEL,
-            prompt=prompt,
-            options=LLM_OPTIONS
-        )
-        raw_answer = response.get("response", "")
+        generation = provider.generate(prompt)
+        raw_answer = generation.raw_text
         answer = clean_rag_output(raw_answer)
 
         if DEBUG_RAG:
+            print(f"[RAG DEBUG] Provider: {generation.provider}")
             print(f"[RAG DEBUG] Raw LLM response: {raw_answer[:500]}...")
             print(f"[RAG DEBUG] Cleaned answer: {answer[:500]}...")
     except Exception as e:
@@ -184,5 +194,6 @@ def query_rag(question: str) -> dict:
     return {
         "decision": "ALLOW",
         "answer": final_answer,
-        "sources": used_sources
+        "sources": used_sources,
+        "provider": generation.provider
     }

@@ -53,6 +53,28 @@ class Config:
     UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'backend/data/docs')
     MAX_CONTENT_LENGTH = int(os.getenv('MAX_CONTENT_LENGTH', str(16 * 1024 * 1024)))  # 16MB default
 
+    # -------------------------
+    # RAG Provider
+    # -------------------------
+    # Set RAG_PROVIDER=external to use Groq + Qdrant Cloud instead of local Ollama + Chroma.
+    RAG_PROVIDER = os.getenv('RAG_PROVIDER', 'local')          # "local" | "external"
+
+    # Groq API (external LLM) — required when RAG_PROVIDER=external
+    GROQ_API_KEY = os.getenv('GROQ_API_KEY', None)
+    GROQ_LLM_MODEL = os.getenv('GROQ_LLM_MODEL', 'llama-3.1-8b-instant')
+    GROQ_TEMPERATURE = float(os.getenv('GROQ_TEMPERATURE', '0.3'))
+    GROQ_MAX_TOKENS = int(os.getenv('GROQ_MAX_TOKENS', '512'))
+
+    # Qdrant Cloud (external vector DB) — required when RAG_PROVIDER=external
+    QDRANT_URL = os.getenv('QDRANT_URL', None)
+    QDRANT_API_KEY = os.getenv('QDRANT_API_KEY', None)
+    QDRANT_COLLECTION = os.getenv('QDRANT_COLLECTION', 'zerosec_docs')
+    QDRANT_SIMILARITY_THRESHOLD = float(os.getenv('QDRANT_SIMILARITY_THRESHOLD', '0.30'))
+
+    # Shared retrieval tuning (applies to both providers)
+    RAG_TOP_K = int(os.getenv('RAG_TOP_K', '8'))
+    RAG_MAX_RESULTS = int(os.getenv('RAG_MAX_RESULTS', '4'))
+
 class DevelopmentConfig(Config):
     """Development configuration"""
     DEBUG = True

@@ -22,6 +22,7 @@ from backend.api.users import users_bp
 from backend.api.dashboard import dashboard_bp
 from backend.api.subscriptions import subscriptions_bp
 from backend.api.metrics import metrics_bp
+from backend.api.rag_config import rag_config_bp
 
 # Get environment
 env = os.getenv('FLASK_ENV', 'development')
@@ -49,6 +50,7 @@ app.register_blueprint(users_bp)
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(subscriptions_bp)
 app.register_blueprint(metrics_bp)
+app.register_blueprint(rag_config_bp)
 
 @app.route("/query", methods=["POST"])
 def query_route():
@@ -60,6 +62,15 @@ def query_route():
     log_decision(question, result)
 
     return jsonify(result)
+
+@app.route("/api/rag/health", methods=["GET"])
+def rag_health():
+    """Return current RAG provider health and configuration."""
+    from backend.rag.providers import get_provider
+    try:
+        return jsonify(get_provider().health_check())
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 @app.route("/logs")
 @jwt_required()

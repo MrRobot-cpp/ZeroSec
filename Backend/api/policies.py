@@ -10,6 +10,20 @@ from backend.utils.rbac import require_permission
 
 policies_bp = Blueprint("policies_bp", __name__)
 
+# Sensitive config keys whose values are masked in GET responses
+_RAG_SENSITIVE_KEYS = {"groq_api_key", "qdrant_api_key"}
+
+def _mask_rag_config(config: dict) -> dict:
+    """Return a copy of the rag_provider config with API keys masked."""
+    if not config:
+        return config
+    masked = dict(config)
+    for key in _RAG_SENSITIVE_KEYS:
+        val = masked.get(key)
+        if val:
+            masked[key] = val[:7] + "****" if len(val) > 7 else "****"
+    return masked
+
 
 @policies_bp.route('/api/policies', methods=['GET'])
 @jwt_required()
@@ -34,7 +48,7 @@ def get_policies():
         policies_data = [{
             'policy_id': policy.policy_id,
             'policy_type': policy.policy_type,
-            'config': policy.config,
+            'config': _mask_rag_config(policy.config) if policy.policy_type == 'rag_provider' else policy.config,
             'enabled': policy.enabled
         } for policy in policies]
 
@@ -99,7 +113,7 @@ def create_policy():
             return jsonify({'error': 'Missing policy_type'}), 400
 
         # Validate policy type
-        valid_types = ['firewall', 'retrieval', 'output', 'canary', 'abac', 'encryption']
+        valid_types = ['firewall', 'retrieval', 'output', 'canary', 'abac', 'encryption', 'rag_provider']
         if policy_type not in valid_types:
             return jsonify({'error': f'Invalid policy_type. Must be one of: {", ".join(valid_types)}'}), 400
 
@@ -124,10 +138,15 @@ def create_policy():
             }
         )
 
+        # Re-initialize RAG provider singleton when rag_provider config changes
+        if policy_type == 'rag_provider':
+            from backend.rag.providers import reset_provider
+            reset_provider()
+
         policy_data = {
             'policy_id': policy.policy_id,
             'policy_type': policy.policy_type,
-            'config': policy.config,
+            'config': _mask_rag_config(policy.config) if policy_type == 'rag_provider' else policy.config,
             'enabled': policy.enabled
         }
 
@@ -167,6 +186,16 @@ def update_policy(policy_id):
         config = data.get('config')
         enabled = data.get('enabled')
 
+        # For rag_provider: merge submitted config with existing (empty/masked fields = keep existing)
+        if policy.policy_type == 'rag_provider' and config:
+            existing_config = policy.config or {}
+            merged = dict(existing_config)
+            for k, v in config.items():
+                # Skip empty strings and masked values (ending with ****)
+                if v is not None and v != "" and not (isinstance(v, str) and v.endswith("****")):
+                    merged[k] = v
+            config = merged
+
         # Update policy
         updated_policy = PolicyRepository.update_policy(
             policy_id=policy_id,
@@ -188,10 +217,15 @@ def update_policy(policy_id):
             }
         )
 
+        # Re-initialize RAG provider singleton when rag_provider config changes
+        if updated_policy.policy_type == 'rag_provider':
+            from backend.rag.providers import reset_provider
+            reset_provider()
+
         policy_data = {
             'policy_id': updated_policy.policy_id,
             'policy_type': updated_policy.policy_type,
-            'config': updated_policy.config,
+            'config': _mask_rag_config(updated_policy.config) if updated_policy.policy_type == 'rag_provider' else updated_policy.config,
             'enabled': updated_policy.enabled
         }
 

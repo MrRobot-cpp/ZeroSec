@@ -3,7 +3,7 @@ from hashlib import md5
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from backend.rag.chunker import chunk_documents as _chunk_documents
 
 # -------------------------
 # CONFIG
@@ -86,31 +86,6 @@ def extract_text_from_file(file_path):
     except Exception:
         return ""
 
-
-def _chunk_documents(documents):
-    """Split documents into optimized chunks for retrieval."""
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        length_function=len,
-        separators=["\n\n", "\n", ". ", " ", ""],
-        keep_separator=True
-    )
-
-    chunked_docs = []
-    for doc in documents:
-        chunks = splitter.split_text(doc.page_content)
-        for i, chunk in enumerate(chunks):
-            if chunk.strip():  # Skip empty chunks
-                chunked_docs.append(Document(
-                    page_content=chunk,
-                    metadata={
-                        **doc.metadata,
-                        "chunk_index": i,
-                        "total_chunks": len(chunks)
-                    }
-                ))
-    return chunked_docs
 
 
 def load_all_documents():

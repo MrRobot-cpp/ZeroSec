@@ -22,18 +22,32 @@ def test_rag_config():
     data = request.get_json(force=True) or {}
     provider_mode = data.get('provider', 'local').lower()
 
+    # Debug logging
+    print(f"[rag_config] Testing provider: {provider_mode}")
+    print(f"[rag_config] Config keys: {list(data.keys())}")
+
     try:
         if provider_mode == 'external':
             from backend.rag.providers.external_provider import ExternalRAGProvider
-            # Instantiate directly (not via singleton) using the submitted config
+            print("[rag_config] Creating ExternalRAGProvider...")
             provider = ExternalRAGProvider(config=data)
+            result = provider.health_check()
+        elif provider_mode == 'hybrid':
+            from backend.rag.providers.hybrid_provider import HybridRAGProvider
+            print("[rag_config] Creating HybridRAGProvider...")
+            provider = HybridRAGProvider(config=data)
             result = provider.health_check()
         else:
             from backend.rag.providers.local_provider import LocalRAGProvider
+            print("[rag_config] Creating LocalRAGProvider...")
             provider = LocalRAGProvider()
             result = provider.health_check()
 
+        print(f"[rag_config] Health check result: {result}")
         return jsonify(result), 200
 
     except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 200
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[rag_config] Error: {error_trace}")
+        return jsonify({"status": "error", "error": str(e), "traceback": error_trace}), 200

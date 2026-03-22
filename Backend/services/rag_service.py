@@ -2,8 +2,6 @@ from backend.rag.providers import get_provider
 from backend.rag.prompt_builder import (
     build_safe_context,
     build_prompt,
-    extract_entities_from_question,
-    extract_subject_name,
     clean_rag_output,
     preprocess_query
 )
@@ -85,7 +83,7 @@ def query_rag(question: str) -> dict:
         }
 
     # 1. Input firewall
-    inj, score = firewall.detect_injection(question)
+    inj, _ = firewall.detect_injection(question)
     if inj:
         return {
             "decision": "BLOCK",
@@ -121,7 +119,7 @@ def query_rag(question: str) -> dict:
         }
 
     # Extract just the documents for context building
-    docs = [doc for doc, score in results_with_scores]
+    docs = [doc for doc, _ in results_with_scores]
 
     # 4. Build safe context and get actually used sources
     context, used_sources, blocked_reason = build_safe_context(docs)
@@ -141,7 +139,7 @@ def query_rag(question: str) -> dict:
                 "answer": "ACCESS DENIED: This response has been blocked by ZeroSec Canary Triggers Detection. Sensitive forensic watermarks were identified in the associated document retrieval.",
                 "sources": []
             }
-        
+
         return {
             "decision": "ALLOW",
             "answer": "I found some documents but couldn't extract usable information. Please try rephrasing your question.",
@@ -188,7 +186,18 @@ def query_rag(question: str) -> dict:
             "sources": used_sources
         }
 
-    # 7. PII enforcement (Redact sensitive info but keep the answer)
+    # 7. Output security — run firewall on LLM response to catch jailbreaks
+    is_jailbreak, jailbreak_reason = firewall.inspect_llm_output(answer)
+    if is_jailbreak:
+        print(f"[SECURITY] Jailbreak detected in LLM output: {jailbreak_reason}")
+        return {
+            "decision": "BLOCK",
+            "reason": jailbreak_reason,
+            "answer": "SECURITY ALERT: This response has been blocked by ZeroSec. The LLM output was flagged as a potential jailbreak attempt.",
+            "sources": []
+        }
+
+    # 8. PII enforcement (Redact sensitive info but keep the answer)
     final_answer = firewall.redact_pii(answer)
 
     return {

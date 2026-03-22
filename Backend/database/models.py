@@ -251,3 +251,19 @@ class AuditLog(db.Model):
 
     def __repr__(self):
         return f'<AuditLog {self.action} by user {self.user_id}>'
+
+class PayloadLog(db.Model):
+    """Firewall flagged/blocked payloads for learning"""
+    __tablename__ = 'payload_logs'
+
+    payload_log_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organisation.organization_id'), nullable=False)
+    payload_preview = db.Column(db.Text, nullable=True)
+    decision = db.Column(db.String(20), nullable=False)
+    ml_score = db.Column(db.Float, nullable=True)
+    regex_hits = db.Column(db.JSON, nullable=True)
+    final_score = db.Column(db.Float, nullable=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f'<PayloadLog {self.decision} score={self.final_score}>'

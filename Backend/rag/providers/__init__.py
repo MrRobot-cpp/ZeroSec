@@ -32,6 +32,7 @@ def get_provider() -> BaseRAGProvider:
 
     provider=local (default): Ollama + Chroma, no external API keys needed.
     provider=external: Groq (LLM) + sentence-transformers (embeddings) + Qdrant Cloud.
+    provider=hybrid: Groq (LLM) + sentence-transformers (embeddings) + Chroma (local).
     """
     global _provider
     if _provider is None:
@@ -41,6 +42,10 @@ def get_provider() -> BaseRAGProvider:
             _validate_external_config(db_config)
             from backend.rag.providers.external_provider import ExternalRAGProvider
             _provider = ExternalRAGProvider(config=db_config)
+        elif mode == "hybrid":
+            _validate_hybrid_config(db_config)
+            from backend.rag.providers.hybrid_provider import HybridRAGProvider
+            _provider = HybridRAGProvider(config=db_config)
         else:
             from backend.rag.providers.local_provider import LocalRAGProvider
             _provider = LocalRAGProvider()
@@ -66,4 +71,13 @@ def _validate_external_config(config: dict) -> None:
         raise ValueError(
             f"External RAG provider requires: {', '.join(missing)}. "
             "Configure them in Settings → Integrations → RAG Provider."
+        )
+
+
+def _validate_hybrid_config(config: dict) -> None:
+    """Check that Groq API key is available (DB config or env vars)."""
+    if not (config.get("groq_api_key") or os.getenv("GROQ_API_KEY")):
+        raise ValueError(
+            "Hybrid RAG provider requires: groq_api_key. "
+            "Configure it in Settings → Integrations → RAG Provider."
         )

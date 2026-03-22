@@ -287,7 +287,9 @@ function IntegrationsTab() {
           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${activeProvider.status === "ok" ? "bg-green-400" : "bg-red-400"}`} />
           <span>
             <span className="font-semibold">Active RAG provider: </span>
-            {activeProvider.provider === "external"
+            {activeProvider.provider === "hybrid"
+              ? `Hybrid — LLM: ${activeProvider.llm}, VectorDB: ${activeProvider.vector_db}`
+              : activeProvider.provider === "external"
               ? `External — LLM: ${activeProvider.llm}, VectorDB: ${activeProvider.vector_db}`
               : `Local — LLM: ${activeProvider.llm}, VectorDB: ${activeProvider.vector_db}`}
           </span>
@@ -303,10 +305,11 @@ function IntegrationsTab() {
         </p>
 
         {/* Mode selection */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="grid grid-cols-3 gap-3 mb-6">
           {[
             { value: "local", label: "Local (Ollama + Chroma)", desc: "No API keys needed. Requires Ollama running locally." },
-            { value: "external", label: "External API (Free)", desc: "Groq LLM + Qdrant Cloud. Sign up free at groq.com and cloud.qdrant.io." },
+            { value: "hybrid", label: "Hybrid (Groq + Local Chroma)", desc: "Groq LLM for generation, local Chroma for documents. Best of both worlds." },
+            { value: "external", label: "External (Groq + Qdrant)", desc: "Fully cloud-based. Groq LLM + Qdrant Cloud." },
           ].map((opt) => (
             <button
               key={opt.value}
@@ -323,19 +326,51 @@ function IntegrationsTab() {
           ))}
         </div>
 
-        {/* External config fields */}
+        {/* Hybrid config — Groq API key only, local Chroma for vectors */}
+        {formState.provider === "hybrid" && (
+          <div className="space-y-4">
+            <div className="px-3 py-2 bg-blue-900/20 border border-blue-800 rounded-md text-xs text-blue-300">
+              Hybrid mode uses Groq for LLM generation and your local Chroma vector store. Only a Groq API key is needed.
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <h4 className="text-sm font-semibold text-gray-300">Groq API Key</h4>
+                <a href="https://console.groq.com" target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
+                  Get free key ↗
+                </a>
+              </div>
+              <div className="space-y-3">
+                <input
+                  type="password"
+                  name="groq_api_key"
+                  value={formState.groq_api_key}
+                  onChange={handleChange}
+                  placeholder={hasExistingKeys.groq ? "API key saved — enter new key to update" : "Groq API Key (gsk_...)"}
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <select
+                  name="groq_llm_model"
+                  value={formState.groq_llm_model}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                >
+                  <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (recommended)</option>
+                  <option value="llama-3.1-70b-versatile">Llama 3.1 70B Versatile</option>
+                  <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* External config fields — Groq + Qdrant Cloud */}
         {formState.provider === "external" && (
           <div className="space-y-6">
             {/* Groq */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <h4 className="text-sm font-semibold text-gray-300">Groq API — LLM</h4>
-                <a
-                  href="https://console.groq.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-blue-400 hover:text-blue-300"
-                >
+                <a href="https://console.groq.com" target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
                   Get free API key ↗
                 </a>
               </div>
@@ -360,17 +395,11 @@ function IntegrationsTab() {
                 </select>
               </div>
             </div>
-
             {/* Qdrant */}
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <h4 className="text-sm font-semibold text-gray-300">Qdrant Cloud — Vector Database</h4>
-                <a
-                  href="https://cloud.qdrant.io"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-blue-400 hover:text-blue-300"
-                >
+                <a href="https://cloud.qdrant.io" target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300">
                   Get free cluster ↗
                 </a>
               </div>
@@ -406,7 +435,7 @@ function IntegrationsTab() {
 
         {/* Actions */}
         <div className="flex items-center gap-3 mt-6">
-          {formState.provider === "external" && (
+          {(formState.provider === "external" || formState.provider === "hybrid") && (
             <button
               onClick={handleTest}
               disabled={isTesting}

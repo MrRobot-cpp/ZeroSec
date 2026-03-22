@@ -113,9 +113,16 @@ def create_policy():
             return jsonify({'error': 'Missing policy_type'}), 400
 
         # Validate policy type
-        valid_types = ['firewall', 'retrieval', 'output', 'canary', 'abac', 'encryption', 'rag_provider']
+        valid_types = ['firewall', 'retrieval', 'output', 'canary', 'abac', 'encryption', 'rag_provider', 'firewall_patterns']
         if policy_type not in valid_types:
             return jsonify({'error': f'Invalid policy_type. Must be one of: {", ".join(valid_types)}'}), 400
+
+        # Validate firewall_patterns before saving
+        if policy_type == 'firewall_patterns':
+            from backend.security.pattern_manager import validate_and_save_patterns
+            valid, error = validate_and_save_patterns(organization_id, config)
+            if not valid:
+                return jsonify({'error': f'Pattern validation failed: {error}'}), 400
 
         # Create policy
         policy = PolicyRepository.create_policy(
@@ -132,7 +139,7 @@ def create_policy():
             action='policy_created',
             target_type='Policy',
             target_id=policy.policy_id,
-            meta_data={
+            metadata={
                 'policy_type': policy_type,
                 'enabled': enabled
             }
@@ -196,6 +203,13 @@ def update_policy(policy_id):
                     merged[k] = v
             config = merged
 
+        # Validate firewall_patterns before updating
+        if policy.policy_type == 'firewall_patterns' and config:
+            from backend.security.pattern_manager import validate_and_save_patterns
+            valid, error = validate_and_save_patterns(organization_id, config)
+            if not valid:
+                return jsonify({'error': f'Pattern validation failed: {error}'}), 400
+
         # Update policy
         updated_policy = PolicyRepository.update_policy(
             policy_id=policy_id,
@@ -211,7 +225,7 @@ def update_policy(policy_id):
             action='policy_updated',
             target_type='Policy',
             target_id=policy_id,
-            meta_data={
+            metadata={
                 'policy_type': updated_policy.policy_type,
                 'enabled': updated_policy.enabled
             }
@@ -268,7 +282,7 @@ def delete_policy(policy_id):
                 action='policy_deleted',
                 target_type='Policy',
                 target_id=policy_id,
-                meta_data={
+                metadata={
                     'policy_type': policy.policy_type
                 }
             )
@@ -310,7 +324,7 @@ def toggle_policy(policy_id):
             action='policy_toggled',
             target_type='Policy',
             target_id=policy_id,
-            meta_data={
+            metadata={
                 'policy_type': updated_policy.policy_type,
                 'enabled': updated_policy.enabled
             }
@@ -330,3 +344,25 @@ def toggle_policy(policy_id):
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@policies_bp.route('/api/policies/firewall/reload', methods=['POST'])
+@jwt_required()
+@require_permission('policy_manage')
+def reload_firewall_patterns():
+    """Reload firewall patterns from DB without restart"""
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    organization_id = claims.get('organization_id')
+
+    try:
+        from backend.security.pattern_manager import reload_all_patterns
+        reload_all_patterns(organization_id)
+
+        return jsonify({
+            'message': 'Firewall patterns reloaded successfully',
+            'org_id': organization_id
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Reload failed: {str(e)}'}), 500

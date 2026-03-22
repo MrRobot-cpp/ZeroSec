@@ -674,13 +674,18 @@ class DashboardRepository:
         # Convert to alert format
         alert_list = []
         for alert in alerts:
+            # Make created_at timezone-aware if it's naive (from datetime.utcnow())
+            created_at = alert.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+
             alert_dict = {
                 'id': alert.audit_id,
                 'type': alert.action,
                 'message': f"{alert.action.replace('_', ' ').title()}",
                 'severity': 'high' if alert.action == 'unauthorized_access' else 'medium',
-                'timestamp': alert.created_at.isoformat(),
-                'status': 'open' if (datetime.now(timezone.utc) - alert.created_at).days < 1 else 'closed',
+                'timestamp': created_at.isoformat(),
+                'status': 'open' if (datetime.now(timezone.utc) - created_at).days < 1 else 'closed',
                 'user': alert.user.username if alert.user else 'System',
                 'target': alert.target_type,
                 'target_id': alert.target_id

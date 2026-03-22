@@ -10,6 +10,8 @@ def require_permission(permission):
     """
     Decorator to require specific permission
 
+    Users with 'admin' permission bypass all specific permission checks.
+
     Usage:
         @require_permission('read')
         def my_route():
@@ -22,6 +24,10 @@ def require_permission(permission):
                 verify_jwt_in_request()
                 claims = get_jwt()
                 permissions = claims.get('permissions', [])
+
+                # Admin users have all permissions
+                if 'admin' in permissions:
+                    return fn(*args, **kwargs)
 
                 if permission not in permissions:
                     print(f"[RBAC DEBUG] Permission denied. Required: '{permission}', User has: {permissions}")

@@ -3,7 +3,7 @@ from hashlib import md5
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from backend.rag.chunker import chunk_documents as _chunk_documents
 
 # -------------------------
 # CONFIG
@@ -17,10 +17,10 @@ EMBEDDING_MODEL = "nomic-embed-text"  # Proper embedding model for semantic sear
 CHUNK_SIZE = 1000  # Larger chunks = fewer chunks, more context per chunk
 CHUNK_OVERLAP = 100  # Overlap to maintain context between chunks
 
-# Retriever config
-TOP_K = 6  # Max chunks to consider initially (before filtering)
-DISTANCE_THRESHOLD = 1.0  # Maximum distance to include (lower = more similar, nomic-embed uses ~0.5-1.5 range)
-MAX_RESULTS = 3  # Maximum results to return after filtering
+# Retriever config - tuned for better recall
+TOP_K = 10  # Retrieve more candidates
+DISTANCE_THRESHOLD = 1.2  # Increased: allow more chunks through (lower = stricter)
+MAX_RESULTS = 5  # Return more context chunks
 
 # Global cache
 _vectorstore_cache = None
@@ -86,31 +86,6 @@ def extract_text_from_file(file_path):
     except Exception:
         return ""
 
-
-def _chunk_documents(documents):
-    """Split documents into optimized chunks for retrieval."""
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        length_function=len,
-        separators=["\n\n", "\n", ". ", " ", ""],
-        keep_separator=True
-    )
-
-    chunked_docs = []
-    for doc in documents:
-        chunks = splitter.split_text(doc.page_content)
-        for i, chunk in enumerate(chunks):
-            if chunk.strip():  # Skip empty chunks
-                chunked_docs.append(Document(
-                    page_content=chunk,
-                    metadata={
-                        **doc.metadata,
-                        "chunk_index": i,
-                        "total_chunks": len(chunks)
-                    }
-                ))
-    return chunked_docs
 
 
 def load_all_documents():

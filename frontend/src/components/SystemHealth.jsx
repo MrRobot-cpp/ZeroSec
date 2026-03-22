@@ -6,6 +6,7 @@ export default function SystemHealth() {
     llm: "checking",
     backend: "checking",
   });
+  const [ragInfo, setRagInfo] = useState(null);
 
   useEffect(() => {
     checkHealth();
@@ -39,17 +40,19 @@ export default function SystemHealth() {
       newHealth.vectordb = "down";
     }
 
-    // Check LLM (via query endpoint with test)
+    // Check LLM + VectorDB via the real RAG health endpoint
     try {
-      const response = await fetch("http://localhost:5200/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: "health_check" }),
+      const response = await fetch("http://localhost:5200/api/rag/health", {
         signal: AbortSignal.timeout(10000)
       });
-      newHealth.llm = response.ok ? "healthy" : "degraded";
+      const data = await response.json();
+      newHealth.llm = data.status === "ok" ? "healthy" : "degraded";
+      newHealth.vectordb = data.status === "ok" ? "healthy" : "degraded";
+      setRagInfo(data);
     } catch (error) {
       newHealth.llm = "down";
+      newHealth.vectordb = "down";
+      setRagInfo(null);
     }
 
     setHealth(newHealth);
@@ -104,6 +107,28 @@ export default function SystemHealth() {
             </div>
           );
         })}
+        {ragInfo && (
+          <div className="mt-1 px-3 py-2 rounded-lg bg-gray-700/40 border border-gray-700 text-xs text-gray-400 space-y-1">
+            <div className="flex justify-between">
+              <span>Mode</span>
+              <span className={`font-medium ${ragInfo.provider === "external" ? "text-blue-400" : "text-green-400"}`}>
+                {ragInfo.provider === "external" ? "External API" : "Local"}
+              </span>
+            </div>
+            {ragInfo.llm && (
+              <div className="flex justify-between">
+                <span>LLM</span>
+                <span className="text-gray-300 font-mono">{ragInfo.llm}</span>
+              </div>
+            )}
+            {ragInfo.vector_db && (
+              <div className="flex justify-between">
+                <span>Vector DB</span>
+                <span className="text-gray-300 font-mono">{ragInfo.vector_db}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

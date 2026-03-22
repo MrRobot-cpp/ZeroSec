@@ -15,7 +15,7 @@ export default function UsersTab() {
     role: "",
     department: "",
     clearanceLevel: "",
-    status: "active",
+    status: "Active",
   });
 
   const handleOpenModal = (user = null) => {
@@ -39,7 +39,7 @@ export default function UsersTab() {
         role: "",
         department: "",
         clearanceLevel: "",
-        status: "active",
+        status: "Active",
       });
     }
     setShowModal(true);
@@ -52,10 +52,20 @@ export default function UsersTab() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const apiData = {
+      username: formData.username,
+      email: formData.email,
+      password: formData.password,
+      status: formData.status,
+      role: formData.role || null,
+      department: formData.department || null,
+      clearanceLevel: formData.clearanceLevel || null,
+    };
+
     if (editingUser) {
-      await updateUser(editingUser.id, formData);
+      await updateUser(editingUser.user_id, apiData);
     } else {
-      await createUser(formData);
+      await createUser(apiData);
     }
     handleCloseModal();
   };
@@ -67,7 +77,7 @@ export default function UsersTab() {
 
   const handleConfirmDelete = async () => {
     if (userToDelete) {
-      await deleteUser(userToDelete.id);
+      await deleteUser(userToDelete.user_id);
       setShowDeleteModal(false);
       setUserToDelete(null);
     }
@@ -134,7 +144,7 @@ export default function UsersTab() {
                 <th className="py-4 px-6 font-medium">Department</th>
                 <th className="py-4 px-6 font-medium">Clearance</th>
                 <th className="py-4 px-6 font-medium">Status</th>
-                <th className="py-4 px-6 font-medium">Last Login</th>
+                <th className="py-4 px-6 font-medium">Created</th>
                 <th className="py-4 px-6 font-medium">Actions</th>
               </tr>
             </thead>
@@ -157,24 +167,18 @@ export default function UsersTab() {
               ) : (
                 users.map((user) => (
                   <tr
-                    key={user.id}
+                    key={user.user_id}
                     className="border-t border-gray-700 hover:bg-gray-700/50 transition-colors"
                   >
                     <td className="py-4 px-6 text-gray-100 font-medium">{user.username}</td>
                     <td className="py-4 px-6 text-gray-300">{user.email}</td>
-                    <td className="py-4 px-6">
-                      <span className="px-2 py-1 bg-blue-900/50 text-blue-300 rounded text-xs font-medium">
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 text-gray-300">{user.department}</td>
-                    <td className="py-4 px-6">
-                      <span className="px-2 py-1 bg-purple-900/50 text-purple-300 rounded text-xs font-medium">
-                        {user.clearanceLevel}
-                      </span>
-                    </td>
+                    <td className="py-4 px-6 text-gray-400 text-sm">{user.role || "N/A"}</td>
+                    <td className="py-4 px-6 text-gray-400 text-sm">{user.department || "N/A"}</td>
+                    <td className="py-4 px-6 text-gray-400 text-sm">{user.clearanceLevel || "N/A"}</td>
                     <td className="py-4 px-6">{getStatusBadge(user.status)}</td>
-                    <td className="py-4 px-6 text-gray-400 text-sm">{user.lastLogin}</td>
+                    <td className="py-4 px-6 text-gray-400 text-sm">
+                      {user.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A"}
+                    </td>
                     <td className="py-4 px-6">
                       <div className="flex gap-2">
                         <button
@@ -270,15 +274,15 @@ export default function UsersTab() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Role *
+                    Role
                   </label>
                   <select
-                    required
                     value={formData.role}
                     onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                     className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select role</option>
+                    <option value="Super Admin">Super Admin</option>
                     <option value="Admin">Admin</option>
                     <option value="Security Analyst">Security Analyst</option>
                     <option value="Auditor">Auditor</option>
@@ -287,15 +291,15 @@ export default function UsersTab() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Department *
+                    Department
                   </label>
                   <select
-                    required
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                     className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select department</option>
+                    <option value="General">General</option>
                     <option value="Security">Security</option>
                     <option value="Engineering">Engineering</option>
                     <option value="Operations">Operations</option>
@@ -307,10 +311,9 @@ export default function UsersTab() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Clearance Level *
+                    Clearance Level
                   </label>
                   <select
-                    required
                     value={formData.clearanceLevel}
                     onChange={(e) => setFormData({ ...formData, clearanceLevel: e.target.value })}
                     className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -333,9 +336,9 @@ export default function UsersTab() {
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                     className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="suspended">Suspended</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Suspended">Suspended</option>
                   </select>
                 </div>
               </div>

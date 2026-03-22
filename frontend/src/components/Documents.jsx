@@ -11,8 +11,8 @@ export default function Documents() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const fileInputRef = useRef(null);
 
-  const viewDocument = (filename) => {
-    router.push(`/documents/${encodeURIComponent(filename)}`);
+  const viewDocument = (documentId) => {
+    router.push(`/documents/${documentId}`);
   };
 
   const handleFileSelect = async (e) => {
@@ -36,11 +36,11 @@ export default function Documents() {
     }
   };
 
-  const handleDelete = async (filename) => {
+  const handleDelete = async (documentId, documentName) => {
     try {
-      await remove(filename);
+      await remove(documentId);
       setDeleteConfirm(null);
-      setUploadSuccess(`File "${filename}" deleted successfully!`);
+      setUploadSuccess(`File "${documentName}" deleted successfully!`);
       setTimeout(() => setUploadSuccess(null), 5000);
     } catch (err) {
       setUploadError(err.message);
@@ -153,7 +153,7 @@ export default function Documents() {
                   <tr key={doc.id} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
                     <td className="py-3 px-4 text-gray-100">
                       <button
-                        onClick={() => viewDocument(doc.name)}
+                        onClick={() => viewDocument(doc.id)}
                         className="flex items-center gap-2 hover:text-blue-400 transition-colors text-left"
                       >
                         <span>📄</span>
@@ -205,13 +205,13 @@ export default function Documents() {
                     <td className="py-3 px-4">
                       <div className="flex gap-2">
                         <button
-                          onClick={() => viewDocument(doc.name)}
+                          onClick={() => viewDocument(doc.id)}
                           className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors"
                         >
                           View
                         </button>
                         <button
-                          onClick={() => setDeleteConfirm(doc.name)}
+                          onClick={() => setDeleteConfirm({ id: doc.id, name: doc.name })}
                           className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm transition-colors"
                         >
                           Delete
@@ -232,7 +232,7 @@ export default function Documents() {
           <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-xl font-bold text-white mb-4">Confirm Deletion</h3>
             <p className="text-gray-300 mb-6">
-              Are you sure you want to delete <span className="font-semibold text-white">"{deleteConfirm}"</span>?
+              Are you sure you want to delete <span className="font-semibold text-white">"{deleteConfirm.name}"</span>?
               This action cannot be undone.
             </p>
             <div className="flex gap-3 justify-end">
@@ -243,7 +243,7 @@ export default function Documents() {
                 Cancel
               </button>
               <button
-                onClick={() => handleDelete(deleteConfirm)}
+                onClick={() => handleDelete(deleteConfirm.id, deleteConfirm.name)}
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
               >
                 Delete

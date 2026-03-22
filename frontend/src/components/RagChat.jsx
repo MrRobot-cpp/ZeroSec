@@ -105,6 +105,11 @@ export default function RagChat() {
                       <p className="text-sm whitespace-pre-wrap leading-relaxed">
                         {message.content}
                       </p>
+                      {message.metadata?.provider && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          via {message.metadata.provider === "external" ? "Groq + Qdrant" : "Local (Ollama)"}
+                        </p>
+                      )}
                       {message.metadata && message.metadata.sources && message.metadata.sources.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-gray-700">
                           <div className="flex items-center gap-1.5 mb-3">

@@ -2,14 +2,28 @@
 Flask==3.0.3
 Flask-Cors==4.0.0
 
+# Database
+SQLAlchemy>=2.0.0
+Flask-SQLAlchemy>=3.1.0
+psycopg2-binary>=2.9.9
+alembic>=1.13.0
+
+# Authentication & Security
+Flask-JWT-Extended>=4.6.0
+Flask-Bcrypt>=1.0.1
+PyJWT>=2.8.0
+passlib>=1.7.4
+
 # ML / detection
 pytector==0.3.2
 transformers>=4.44.0
 torch>=2.2.0
+huggingface_hub>=0.34.0,<1.0
 
 # Utilities
 regex>=2023.12.25
 requests>=2.32.3
+python-dotenv>=1.0.0
 
 # CSV / data handling
 pandas>=2.2.2
@@ -24,3 +38,13 @@ rich>=13.7.1
 PyPDF2>=3.0.1
 python-docx>=1.1.0
 pypandoc>=1.12
+
+# External RAG provider (only needed when RAG_PROVIDER=external)
+# LLM: Groq API (free tier - llama-3.1-8b-instant, 14,400 req/day)
+groq>=0.9.0
+# Vector DB: Qdrant Cloud (free tier - 1GB storage)
+qdrant-client>=1.9.0
+langchain-qdrant>=0.1.0
+# Embeddings: sentence-transformers (local, no API key needed)
+langchain-huggingface>=0.0.6
+sentence-transformers>=2.7.0

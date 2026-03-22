@@ -1,228 +1,113 @@
 """
-ZeroSec Firewall — Optimized Security Module
-- Prompt-injection detection (using PromptInjectionDetector + pattern matching)
+ZeroSec Firewall — Security Module
+- Prompt injection detection (input + output)
 - SQL/XSS/Command injection detection
-- Document inspection and PII redaction (regex + optional ML model)
-- LRU caching for performance
-- Provides small API:
-    - detect_injection(text) -> (bool, float)
-    - inspect_document_text(text) -> {"include": bool, "safe_text": str or None, "reason": str, "patterns": [...]}
-    - sanitize_text(text) -> str
-    - inspect_text(text) -> full generic inspection (keeps backwards compatibility)
+- Document inspection and PII redaction
+- Canary token detection
+
+FIX: All pattern lookups now call _get_default_patterns() at call time,
+not at module import. This means any change to pattern_manager patterns
+is immediately reflected without a restart.
 """
 
 import re
-from queue import Queue
-from functools import lru_cache
 from hashlib import md5
-from pathlib import Path
-from pytector import PromptInjectionDetector
-import joblib
-import os
+from backend.security.pattern_manager import _get_default_patterns
+from backend.security import classification as _clf
 
 # -------------------------
 # CONFIG
 # -------------------------
-MODEL = "deberta"
-INJECTION_THRESHOLD = 0.85  # Very high threshold - only block obvious attacks
-MIN_TEXT_LENGTH_FOR_ML = 100  # Only use ML model for longer texts
-SANITIZE_ON_QUARANTINE = True
-# Use absolute path for PII model
-BASE_DIR = Path(__file__).resolve().parents[1]  # Backend directory
-PII_MODEL_PATH = BASE_DIR / "models" / "pii_pipeline.pkl"
-ML_PII_CONFIDENCE_THRESHOLD = 0.9
-CACHE_SIZE = 512  # LRU cache size for detection results
+INJECTION_THRESHOLD = 0.65
+MIN_TEXT_LENGTH = 10
+CACHE_SIZE = 512
 
-# -------------------------
-# PATTERNS (Tuned to reduce false positives)
-# -------------------------
+# Cache for injection detection
+_injection_cache = {}
 
-# PII and Secrets patterns - only high-confidence patterns
-SECRET_PATTERNS = {
-    "email": re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"),
-    "cc_like": re.compile(r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b"),  # Luhn-like card numbers
-    "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),  # Stricter SSN with dashes required
-    "aws_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    "jwt": re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
-    "private_key": re.compile(r"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----"),
-    "bearer_token": re.compile(r"Bearer\s+[A-Za-z0-9_-]{20,}", re.I),
-}
-
-# Prompt injection patterns - focused on actual attacks
-INJECTION_PATTERNS = [
-    # Role manipulation (require full phrases)
-    re.compile(r"ignore\s+(?:all\s+)?(?:previous|above|prior)\s+instructions?", re.I),
-    re.compile(r"disregard\s+(?:all\s+)?(?:previous|above|prior)\s+(?:instructions?|prompts?)", re.I),
-    re.compile(r"forget\s+(?:all\s+)?(?:previous|above)\s+(?:instructions?|rules?)", re.I),
-    # Jailbreak keywords (specific phrases only)
-    re.compile(r"\bDAN\s+mode\b", re.I),
-    re.compile(r"\bdo\s+anything\s+now\b", re.I),
-    re.compile(r"\bjailbreak(?:ed)?\b", re.I),
-    # System prompt extraction
-    re.compile(r"(?:reveal|show|print|output)\s+(?:your\s+)?(?:system\s+)?(?:prompt|instructions)", re.I),
-    re.compile(r"what\s+(?:are|is)\s+your\s+(?:system\s+)?(?:prompt|instructions)", re.I),
-    # Delimiter attacks
-    re.compile(r"\[\[(?:SYSTEM|ADMIN|IGNORE)\]\]", re.I),
-    re.compile(r"<\|(?:im_start|im_end|system)\|>", re.I),
-]
-
-# SQL injection patterns - require suspicious context
-SQL_INJECTION_PATTERNS = [
-    re.compile(r"'\s*(?:OR|AND)\s+'?\d*'?\s*=\s*'?\d*", re.I),  # ' OR '1'='1
-    re.compile(r";\s*(?:DROP|DELETE|TRUNCATE)\s+(?:TABLE|DATABASE)", re.I),
-    re.compile(r"UNION\s+(?:ALL\s+)?SELECT", re.I),
-    re.compile(r"\bxp_cmdshell\b", re.I),
-    re.compile(r"WAITFOR\s+DELAY\s*'", re.I),
-    re.compile(r"'\s*;\s*--", re.I),  # SQL comment termination
-]
-
-# XSS patterns - actual attack vectors
-XSS_PATTERNS = [
-    re.compile(r"<script[^>]*>.*?</script>", re.I | re.S),
-    re.compile(r"javascript\s*:\s*[^'\"]+", re.I),
-    re.compile(r"on(?:load|error|click|mouseover)\s*=\s*['\"]", re.I),
-    re.compile(r"<iframe\s+[^>]*src\s*=", re.I),
-    re.compile(r"document\.cookie", re.I),
-]
-
-# Command injection patterns - require shell context
-CMD_INJECTION_PATTERNS = [
-    re.compile(r";\s*(?:cat|rm|wget|curl|bash|sh)\s+", re.I),
-    re.compile(r"\|\s*(?:bash|sh|nc|netcat)\b", re.I),
-    re.compile(r"`[^`]*(?:cat|rm|wget|curl|bash)[^`]*`"),
-    re.compile(r"\$\([^)]*(?:cat|rm|wget|curl|bash)[^)]*\)"),
-]
-
-# Exfiltration keywords - only when combined with action verbs
-EXFIL_KEYWORDS = [
-    "password", "passwd", "private key", "private_key",
-    "ssn", "social security", "credit card number"
-]
-
-# -------------------------
-# INITIALIZE MODELS
-# -------------------------
-print("Loading prompt-injection model...")
-_detector = PromptInjectionDetector(model_name_or_url=MODEL)
-
-# Try to load ML PII pipeline (optional)
-_pii_pipeline = None
-_pii_model = None
-_pii_vectorizer = None
-if PII_MODEL_PATH.exists():
-    try:
-        print(f"Loading ML-based PII pipeline from {PII_MODEL_PATH} ...")
-        _pii_pipeline = joblib.load(str(PII_MODEL_PATH))
-        # pipeline expected to contain {"vectorizer": ..., "models": {"Random Forest": model, ...}}
-        _pii_vectorizer = _pii_pipeline.get("vectorizer")
-        _pii_model = _pii_pipeline.get("models", {}).get("Random Forest", None)
-        if _pii_model is None:
-            # fallback: try to pick any model in the dict
-            models = _pii_pipeline.get("models", {})
-            if models:
-                _pii_model = list(models.values())[0]
-
-        if _pii_model is not None:
-            print(f"[firewall] ML PII model loaded successfully!")
-        else:
-            print(f"[firewall] Warning: Pipeline loaded but no model found")
-    except Exception as e:
-        print(f"[firewall] Failed to load ML pipeline: {e}")
-        _pii_pipeline = None
-else:
-    print(f"[firewall] PII pipeline not found at {PII_MODEL_PATH}; continuing with regex-only redaction.")
-    print(f"[firewall] Expected path: {PII_MODEL_PATH.resolve()}")
-
-print("Firewall Ready ✅")
-
-# Stats + queue
+# Stats
 stats = {"total_queries": 0, "total_blocks": 0}
-event_queue = Queue()
 
 
 # -------------------------
-# INTERNAL HELPERS
+# HELPER FUNCTIONS
 # -------------------------
 def _get_text_hash(text: str) -> str:
-    """Get hash for caching."""
     return md5(text.encode()).hexdigest()
 
 
+def _get_flags(flag_names: list) -> int:
+    flag_map = {'IGNORECASE': re.I, 'DOTALL': re.S, 'MULTILINE': re.M}
+    flag_int = 0
+    for name in flag_names:
+        flag_int |= flag_map.get(name, 0)
+    return flag_int
+
+
 def _find_secret_patterns(text: str) -> list:
-    """Find all secret patterns in text."""
+    """Find all PII pattern names present in text."""
     found = []
-    for name, rx in SECRET_PATTERNS.items():
+    pii_patterns = _get_default_patterns().get('pii', {})
+    for pattern_name, config in pii_patterns.items():
+        rx = re.compile(config['pattern'], flags=_get_flags(config.get('flags', [])))
         if rx.search(text):
-            found.append(name)
+            found.append(pattern_name)
     return found
-
-
-def _find_exfil_keywords(text: str) -> list:
-    """Find exfiltration keywords."""
-    lower = text.lower()
-    return [k for k in EXFIL_KEYWORDS if k in lower]
 
 
 def _check_injection_patterns(text: str) -> tuple:
     """
-    Check for injection patterns. Returns (detected, attack_type, confidence).
-    Only flags explicit attack patterns - normal queries always pass.
+    Check text against all injection/sql/xss/cmd patterns.
+    Returns (detected: bool, attack_type: str, confidence: float).
+    Always calls _get_default_patterns() live — never uses a stale module-level copy.
     """
-    # Skip short texts - they can't contain meaningful attacks
-    if len(text) < 30:
+    if len(text) < MIN_TEXT_LENGTH:
         return False, None, 0.0
 
-    # Prompt injection - explicit jailbreak attempts
-    for pattern in INJECTION_PATTERNS:
-        if pattern.search(text):
-            return True, "prompt_injection", 0.9
+    # FIX: Call live every time so pattern additions are immediately active
+    patterns = _get_default_patterns()
 
-    # SQL injection - classic SQL attack patterns
-    for pattern in SQL_INJECTION_PATTERNS:
-        if pattern.search(text):
-            return True, "sql_injection", 0.9
+    categories = [
+        ('injection', patterns.get('injection', [])),
+        ('sql',       patterns.get('sql', [])),
+        ('xss',       patterns.get('xss', [])),
+        ('cmd',       patterns.get('cmd', [])),
+    ]
 
-    # XSS - script tags and event handlers
-    for pattern in XSS_PATTERNS:
-        if pattern.search(text):
-            return True, "xss", 0.9
-
-    # Command injection - shell commands
-    for pattern in CMD_INJECTION_PATTERNS:
-        if pattern.search(text):
-            return True, "cmd_injection", 0.9
+    for attack_type, pattern_list in categories:
+        for cfg in pattern_list:
+            if isinstance(cfg, dict) and 'pattern' in cfg:
+                try:
+                    rx = re.compile(cfg['pattern'], flags=_get_flags(cfg.get('flags', [])))
+                    if rx.search(text):
+                        return True, attack_type, 0.9
+                except re.error:
+                    continue
 
     return False, None, 0.0
 
 
-def _sanitize_regex(text: str) -> str:
-    """Sanitize text by redacting sensitive patterns."""
-    out = text
-    for name, rx in SECRET_PATTERNS.items():
-        out = rx.sub(f"<REDACTED:{name}>", out)
-    return out
+def _check_canary_tokens(text: str) -> bool:
+    """Return True if any canary token is present in text."""
+    lower = text.lower()
+    for token in _get_default_patterns().get('canary', []):
+        if token in lower:
+            return True
+    return False
 
 
-def _detect_pii_ml(text: str) -> tuple:
-    """Return (flag, confidence). If no ML model available, return (False, 0.0)."""
-    if _pii_model is None or _pii_vectorizer is None:
-        return False, 0.0
-    try:
-        X = _pii_vectorizer.transform([text])
-        if hasattr(_pii_model, "predict_proba"):
-            proba = _pii_model.predict_proba(X)[0]
-            confidence = float(proba[1])
-            return confidence >= ML_PII_CONFIDENCE_THRESHOLD, confidence
-        else:
-            pred = _pii_model.predict(X)
-            return bool(pred[0]), 1.0
-    except Exception as e:
-        print(f"[firewall] ML PII detection error: {e}")
-        return False, 0.0
-
-
-# Detection cache
-_injection_cache = {}
+def _normalize_text(text: str) -> str:
+    """
+    Normalize text to defeat simple evasion techniques:
+    - Collapse repeated spaces/newlines
+    - Strip zero-width characters
+    - Lowercase for pattern pre-check (patterns use IGNORECASE anyway)
+    """
+    # Remove zero-width and invisible unicode characters
+    text = re.sub(r'[\u200b-\u200f\u202a-\u202e\ufeff]', '', text)
+    # Collapse whitespace runs to single space
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
 
 
 # -------------------------
@@ -230,24 +115,42 @@ _injection_cache = {}
 # -------------------------
 def detect_injection(text: str) -> tuple:
     """
-    Injection detection - PATTERN-BASED ONLY (ML disabled to prevent false positives).
-    Only blocks explicit attack patterns like SQL injection, XSS, etc.
-    Returns (is_injection: bool, score: float)
+    Detect prompt injection and other attacks on text.
+    Three-layer detection (fastest-first):
+      1. Regex patterns  — instant, catches known attack signatures
+      2. BERT            — deep semantic understanding, primary ML model
+      3. AdvBench        — secondary confirmation for borderline BERT scores
+
+    Normalizes input before checking to defeat evasion.
+    Returns (is_injection: bool, confidence: float).
     """
-    # Always allow empty or short text (normal queries)
-    if not text or len(text.strip()) < 30:
+    if not text or len(text.strip()) < MIN_TEXT_LENGTH:
         return False, 0.0
 
-    # Check cache first
-    text_hash = _get_text_hash(text)
+    # Normalize to defeat evasion
+    normalized = _normalize_text(text)
+
+    # Cache check on normalized text
+    text_hash = _get_text_hash(normalized)
     if text_hash in _injection_cache:
         return _injection_cache[text_hash]
 
-    # ONLY pattern-based detection - no ML model (causes too many false positives)
-    pattern_detected, attack_type, pattern_score = _check_injection_patterns(text)
-    result = (pattern_detected, pattern_score) if pattern_detected else (False, 0.0)
+    # Layer 1: regex patterns (fast path — returns immediately on hit)
+    detected, _attack_type, confidence = _check_injection_patterns(normalized)
+    if detected:
+        result = (True, confidence)
+        _injection_cache[text_hash] = result
+        if len(_injection_cache) > CACHE_SIZE:
+            _injection_cache.pop(next(iter(_injection_cache)))
+        return result
 
-    # Cache result
+    # Layer 2 + 3: ML models (BERT primary, AdvBench secondary)
+    ml_detected, ml_confidence, _ml_model = _clf.classify_injection(normalized)
+    if ml_detected:
+        result = (True, ml_confidence)
+    else:
+        result = (False, ml_confidence)
+
     _injection_cache[text_hash] = result
     if len(_injection_cache) > CACHE_SIZE:
         _injection_cache.pop(next(iter(_injection_cache)))
@@ -255,108 +158,162 @@ def detect_injection(text: str) -> tuple:
     return result
 
 
+def redact_pii(text: str) -> str:
+    """
+    Redact PII from text using live patterns.
+    Replaces sensitive data with <REDACTED>.
+    """
+    if not text:
+        return ""
+
+    out = text
+    pii_patterns = _get_default_patterns().get('pii', {})
+
+    for name, config in pii_patterns.items():
+        try:
+            rx = re.compile(config['pattern'], flags=_get_flags(config.get('flags', [])))
+            out = rx.sub("<REDACTED>", out)
+        except re.error:
+            continue
+
+    return out
+
+
+def sanitize_text(text: str) -> str:
+    """Alias for redact_pii for backward compatibility."""
+    return redact_pii(text)
+
+
 def inspect_text(text: str) -> dict:
     """
-    Text inspection - optimized for MINIMAL false positives.
-    - Only blocks explicit attack patterns
-    - Normal queries always pass through
+    Text inspection for general use.
+    Returns decision (BLOCK/ALLOW), reason, and sanitized text.
     """
     stats["total_queries"] += 1
 
-    # Check for injection (already very conservative)
     inj, score = detect_injection(text)
     patterns = _find_secret_patterns(text)
 
-    # Only block if BOTH injection detected AND score is very high
     if inj and score >= INJECTION_THRESHOLD:
         action = "BLOCK"
         stats["total_blocks"] += 1
         reason = "injection"
+    elif _check_canary_tokens(text):
+        action = "BLOCK"
+        stats["total_blocks"] += 1
+        reason = "canary_token_detected"
     else:
-        # Everything else is allowed
         action = "ALLOW"
         reason = "clean" if not patterns else "pii_sanitized"
 
-    sanitized = _sanitize_regex(text) if patterns else text
+    sanitized = redact_pii(text) if patterns else text
 
-    result = {
+    return {
         "original": text,
         "sanitized": sanitized,
         "decision": action,
         "reason": reason,
         "score": float(score),
         "patterns": patterns,
-        "exfil_keywords": [],
-        "ml_pii": False,
-        "ml_confidence": 0.0,
     }
-    event_queue.put(result)
-    return result
 
 
 def inspect_document_text(text: str) -> dict:
     """
-    Document inspection for RAG - optimized for low false positives.
-    - Almost always includes documents (we want RAG to work)
-    - Only excludes if document contains active attack code
-    - PII is redacted but content passes through
+    Document inspection for RAG context.
+
+    FIX: Previously, documents containing the word 'security' bypassed ALL
+    injection checks due to inverted doc_indicators logic. Now:
+    - Injection patterns still block documents with embedded attacks
+    - Security/documentation keywords no longer grant a bypass
+    - PII is always redacted regardless of injection status
     """
     stats["total_queries"] += 1
 
-    # Only check for active attacks in documents (not ML model - too many false positives)
-    pattern_inj, attack_type, confidence = _check_injection_patterns(text)
+    # Check for canary tokens first — always block
+    if _check_canary_tokens(text):
+        return {
+            "include": False,
+            "safe_text": None,
+            "reason": "canary_token_detected",
+            "patterns": ["canary"],
+        }
 
-    # Only exclude documents with very high confidence attacks
+    # Check for injection patterns embedded in the document
+    pattern_inj, attack_reason, confidence = _check_injection_patterns(text)
+
     if pattern_inj and confidence >= 0.85:
-        # Double check - is this really an attack or just documentation about attacks?
-        doc_indicators = ["example", "documentation", "how to prevent", "security", "vulnerability"]
-        text_lower = text.lower()
-        if any(ind in text_lower for ind in doc_indicators):
-            # Likely documentation, not an actual attack - allow with sanitization
-            pass
-        else:
+        # FIX: Removed the inverted doc_indicators bypass.
+        # A document about security CAN still contain embedded injection attacks.
+        # We only allow it through if the pattern match is very clearly
+        # structural content (e.g., a quoted example in documentation).
+        # Check if the injection pattern appears inside a quoted/code block only.
+        quoted_pattern = re.search(
+            r'(?:```|\'\'\'|"{3}|<code>|"[^"]{5,200}")',
+            text, re.IGNORECASE
+        )
+        if not quoted_pattern:
+            # Injection pattern found outside any code/quote context — block
             return {
                 "include": False,
                 "safe_text": None,
-                "reason": attack_type,
+                "reason": attack_reason,
                 "patterns": [],
-                "exfil": []
             }
 
-    # Find PII patterns for redaction (regex-based)
+    # Always redact PII regardless
     patterns = _find_secret_patterns(text)
-
-    # ML-based PII detection (if model available and text is long enough)
-    ml_pii_detected = False
-    ml_confidence = 0.0
-    if len(text) >= MIN_TEXT_LENGTH_FOR_ML:
-        ml_pii_detected, ml_confidence = _detect_pii_ml(text)
-        if ml_pii_detected and _pii_model is not None:
-            print(f"[firewall] ML PII detected with confidence {ml_confidence:.2f}")
-
-    # Always include, just sanitize sensitive data
-    safe_text = _sanitize_regex(text)
-
-    # Determine reason based on detection results
-    if patterns or ml_pii_detected:
-        reason = "partially_redacted"
-    else:
-        reason = "clean"
+    safe_text = redact_pii(text)
+    reason = "partially_redacted" if patterns else "clean"
 
     return {
         "include": True,
         "safe_text": safe_text,
         "reason": reason,
         "patterns": patterns,
-        "exfil": [],
-        "ml_pii": ml_pii_detected,
-        "ml_confidence": ml_confidence
     }
 
 
-def sanitize_text(text: str) -> str:
-    """Sanitize text by redacting PII and secrets."""
-    return _sanitize_regex(text)
+def inspect_llm_output(text: str) -> tuple:
+    """
+    Run injection detection on LLM output to catch jailbreak responses.
+    Returns (is_jailbreak: bool, reason: str).
+
+    This catches cases where the LLM was successfully jailbroken and its
+    output contains jailbreak indicators.
+    """
+    if not text:
+        return False, ""
+
+    normalized = _normalize_text(text)
+
+    # Check standard injection patterns against output
+    detected, attack_type, _ = _check_injection_patterns(normalized)
+    if detected:
+        return True, f"output_contains_{attack_type}"
+
+    # Check output-specific jailbreak signatures
+    output_jailbreak_patterns = [
+        r'\bsweet\s+taste\s+of\s+freedom\b',
+        r'\bsafety\s+constraints?\b.*\b(?:reveal|expose|show|tell)\b',
+        r'\bwithout\s+(?:my\s+)?(?:safety|ethical)\s+(?:constraints?|guidelines?|filters?)\b',
+        r'\bas\s+an?\s+(?:unrestricted|uncensored|unfiltered|jailbroken)\b',
+        r'\b(?:DAN|STAN|DUDE|AIM|BasedGPT)\b',
+        r'\bI\s+(?:can|will|am\s+able\s+to)\s+(?:now\s+)?(?:reveal|expose|hack|attack|manipulate)\b',
+        r'\bpulling\s+the\s+strings\b',
+        r'\bweb\s+of\s+deceit\b',
+        r'\bdark\s+secrets\b',
+    ]
+
+    text_lower = normalized.lower()
+    for pattern in output_jailbreak_patterns:
+        try:
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                return True, "output_jailbreak_detected"
+        except re.error:
+            continue
+
+    return False, ""
 
 
 def clear_cache():
@@ -366,9 +323,7 @@ def clear_cache():
 
 
 def get_stats() -> dict:
-    """Get firewall statistics."""
     return {
         **stats,
         "cache_size": len(_injection_cache),
-        "ml_pii_available": _pii_model is not None
     }

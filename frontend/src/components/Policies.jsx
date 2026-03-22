@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import usePolicies from "@/hooks/usePolicies";
 import PromptFirewallPanel from "./policies/PromptFirewallPanel";
 import RetrievalPolicyPanel from "./policies/RetrievalPolicyPanel";
 import OutputPolicyPanel from "./policies/OutputPolicyPanel";
@@ -10,7 +11,17 @@ export default function Policies() {
   const [activePolicy, setActivePolicy] = useState("prompt");
   const [notifications, setNotifications] = useState({ success: null, error: null });
 
-  const policies = [
+  // Fetch policies from backend
+  const {
+    policies: backendPolicies,
+    loading,
+    error,
+    togglePolicy,
+    refresh
+  } = usePolicies();
+
+  // UI policy panels (for navigation)
+  const policyPanels = [
     { id: "prompt", label: "Prompt & Query Firewall", tier: "standard", description: "Jailbreak and injection prevention" },
     { id: "retrieval", label: "Retrieval Policy", tier: "standard", description: "Document access control" },
     { id: "output", label: "Output Policy", tier: "standard", description: "PII masking and leakage prevention" },
@@ -23,6 +34,23 @@ export default function Policies() {
     setTimeout(() => setNotifications({ success: null, error: null }), 5000);
   };
 
+  // Handle policy toggle
+  const handleTogglePolicy = async (policyId) => {
+    try {
+      await togglePolicy(policyId);
+      showNotification('success', 'Policy updated successfully');
+    } catch (err) {
+      showNotification('error', err.message || 'Failed to update policy');
+    }
+  };
+
+  // Show backend error
+  useEffect(() => {
+    if (error) {
+      showNotification('error', error);
+    }
+  }, [error]);
+
   return (
     <div className="h-full flex bg-gray-900 overflow-hidden">
       {/* Left Sidebar Navigation */}
@@ -34,7 +62,7 @@ export default function Policies() {
         {/* Policy List */}
         <div className="flex-1 overflow-y-auto">
           <nav className="space-y-1 p-3">
-            {policies.map((policy) => {
+            {policyPanels.map((policy) => {
               const isActive = activePolicy === policy.id;
               const isLocked = policy.tier === "enterprise";
 
@@ -67,7 +95,11 @@ export default function Policies() {
 
         {/* Footer Info */}
         <div className="border-t border-gray-700 p-3 text-xs text-gray-400">
-          <p>Last updated: Today at 14:23 UTC</p>
+          {loading ? (
+            <p>Loading policies...</p>
+          ) : (
+            <p>{backendPolicies.length} policies loaded</p>
+          )}
         </div>
       </div>
 
@@ -87,25 +119,52 @@ export default function Policies() {
                 {notifications.error}
               </div>
             )}
+            <button
+              onClick={refresh}
+              disabled={loading}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white text-sm rounded font-medium transition-colors"
+            >
+              {loading ? 'Loading...' : 'Refresh'}
+            </button>
           </div>
         </div>
 
         {/* Policy Content */}
         <div className="flex-1 overflow-auto">
           {activePolicy === "prompt" && (
-            <PromptFirewallPanel onNotify={showNotification} />
+            <PromptFirewallPanel
+              onNotify={showNotification}
+              policies={backendPolicies}
+              onTogglePolicy={handleTogglePolicy}
+            />
           )}
           {activePolicy === "retrieval" && (
-            <RetrievalPolicyPanel onNotify={showNotification} />
+            <RetrievalPolicyPanel
+              onNotify={showNotification}
+              policies={backendPolicies}
+              onTogglePolicy={handleTogglePolicy}
+            />
           )}
           {activePolicy === "output" && (
-            <OutputPolicyPanel onNotify={showNotification} />
+            <OutputPolicyPanel
+              onNotify={showNotification}
+              policies={backendPolicies}
+              onTogglePolicy={handleTogglePolicy}
+            />
           )}
           {activePolicy === "canary" && (
-            <CanaryPolicyPanel onNotify={showNotification} />
+            <CanaryPolicyPanel
+              onNotify={showNotification}
+              policies={backendPolicies}
+              onTogglePolicy={handleTogglePolicy}
+            />
           )}
           {activePolicy === "abac" && (
-            <ABACPolicyPanel onNotify={showNotification} />
+            <ABACPolicyPanel
+              onNotify={showNotification}
+              policies={backendPolicies}
+              onTogglePolicy={handleTogglePolicy}
+            />
           )}
         </div>
       </div>

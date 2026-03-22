@@ -1,10 +1,11 @@
+"use client";
 import Policies from "@/components/Policies";
-
-export const metadata = {
-  title: "Security Policies | ZeroSec",
-  description: "Manage organization-wide AI security policies",
-};
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 export default function PoliciesPage() {
-  return <Policies />;
+  return (
+    <ProtectedRoute requiredPermission="update">
+      <Policies />
+    </ProtectedRoute>
+  );
 }

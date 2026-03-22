@@ -1,16 +1,11 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5200";
+import apiClient from "./apiClient";
 
 /**
  * Fetch all logs and alerts from the backend
  */
 export async function getLogsAndAlerts() {
   try {
-    const response = await fetch(`${API_BASE_URL}/logs`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const response = await apiClient.get("/logs");
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -37,12 +32,7 @@ export async function filterLogs(filters) {
     if (filters.endDate) queryParams.append("endDate", filters.endDate);
     if (filters.search) queryParams.append("search", filters.search);
 
-    const response = await fetch(`${API_BASE_URL}/logs?${queryParams.toString()}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const response = await apiClient.get(`/logs?${queryParams.toString()}`);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -63,12 +53,7 @@ export async function exportLogs(format = "csv", filters = {}) {
   try {
     const queryParams = new URLSearchParams({ format, ...filters });
 
-    const response = await fetch(`${API_BASE_URL}/logs/export?${queryParams.toString()}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const response = await apiClient.get(`/logs/export?${queryParams.toString()}`);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
@@ -94,12 +79,7 @@ export async function exportLogs(format = "csv", filters = {}) {
  */
 export async function getAlertDetails(alertId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/alerts/${alertId}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const response = await apiClient.get(`/alerts/${alertId}`);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -118,12 +98,9 @@ export async function getAlertDetails(alertId) {
  */
 export async function resolveAlert(alertId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/alerts/${alertId}/resolve`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    // Note: resolveAlert uses POST, so we use apiClient.post
+    // passing {} as empty body since headers are handled by apiClient
+    const response = await apiClient.post(`/alerts/${alertId}/resolve`, {});
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

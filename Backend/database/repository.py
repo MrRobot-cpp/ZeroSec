@@ -7,7 +7,7 @@ from backend.database.db import db
 from backend.database.models import (
     Organization, Department, User, Role, RolePermission, UserRole,
     ClearanceLevel, Policy, Document, Upload, CanaryToken,
-    Subscription, Plan, UsageMetric, AuditLog
+    Subscription, Plan, UsageMetric, AuditLog, PayloadLog
 )
 
 class DocumentRepository:
@@ -448,6 +448,73 @@ class SubscriptionRepository:
         db.session.add(metric)
         db.session.commit()
         return metric
+
+class SecurityRepository:
+    """Repository for security event persistence — judge blocks, firewall hits, canary triggers."""
+
+    @staticmethod
+    def log_judge_block(organization_id: int, user_id: int = None,
+                        filename: str = "", source: str = "",
+                        query: str = "", chunk_preview: str = "",
+                        chunk_hash: str = "", model: str = "",
+                        latency_ms: int = 0):
+        """Persist an LLM judge block to both AuditLog and PayloadLog."""
+        try:
+            # AuditLog — feeds the dashboard alerts, security events, audit trail
+            audit = AuditLog(
+                organization_id=organization_id,
+                user_id=user_id,
+                action="llm_judge_block",
+                target_type="document_chunk",
+                meta_data={
+                    "filename": filename,
+                    "source": source,
+                    "query": query,
+                    "chunk_hash": chunk_hash,
+                    "chunk_preview": chunk_preview[:200],
+                    "model": model,
+                    "latency_ms": latency_ms,
+                },
+            )
+            db.session.add(audit)
+
+            # PayloadLog — feeds the security learning pipeline
+            payload = PayloadLog(
+                organization_id=organization_id,
+                payload_preview=chunk_preview[:500],
+                decision="BLOCK",
+                ml_score=1.0,
+                regex_hits={"source": "llm_judge", "model": model},
+                final_score=1.0,
+            )
+            db.session.add(payload)
+
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+    @staticmethod
+    def log_firewall_block(organization_id: int, user_id: int = None,
+                           action: str = "firewall_block", reason: str = "",
+                           query: str = "", score: float = 0.0):
+        """Persist a firewall block (injection, canary, etc.) to AuditLog."""
+        try:
+            audit = AuditLog(
+                organization_id=organization_id,
+                user_id=user_id,
+                action=action,
+                target_type="query",
+                meta_data={
+                    "reason": reason,
+                    "query": query[:200],
+                    "score": score,
+                },
+            )
+            db.session.add(audit)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
 
 class DashboardRepository:
     """Repository for Dashboard metrics and statistics"""

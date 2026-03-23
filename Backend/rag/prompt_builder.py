@@ -1,5 +1,6 @@
 import re
 from backend.security import firewall
+from backend.security import llm_judge
 
 # -------------------------
 # SYSTEM PROMPT - Optimized for RAG with strong document grounding
@@ -60,7 +61,7 @@ def preprocess_query(question: str) -> str:
 # -------------------------
 # SAFE CONTEXT BUILDER
 # -------------------------
-def build_safe_context(docs):
+def build_safe_context(docs, query: str = "", org_id: int = None, user_id: int = None):
     """
     Build context from retrieved chunks with deduplication.
     Returns tuple: (context_string, used_sources_list)
@@ -71,7 +72,28 @@ def build_safe_context(docs):
     used_sources = []
     seen_content = set()
 
-    for i, doc in enumerate(docs[:MAX_CHUNKS]):
+    candidate_docs = docs[:MAX_CHUNKS]
+
+    # Build per-chunk metadata so the judge can log which file/query triggered a block
+    chunk_metadata = [
+        {
+            "filename": doc.metadata.get("filename", f"doc_{i}"),
+            "source": doc.metadata.get("source", ""),
+            "query": query,
+            "org_id": org_id,
+            "user_id": user_id,
+        }
+        for i, doc in enumerate(candidate_docs)
+    ]
+
+    # Run LLM judge on all chunks in parallel before the main loop
+    # so each chunk has a semantic verdict ready at O(1) lookup cost.
+    judge_flags = llm_judge.scan_chunks(
+        [doc.page_content for doc in candidate_docs],
+        metadata=chunk_metadata,
+    )
+
+    for i, doc in enumerate(candidate_docs):
         filename = doc.metadata.get("filename", f"doc_{i}")
         chunk_idx = doc.metadata.get("chunk_index", 0)
         total_chunks = doc.metadata.get("total_chunks", 1)
@@ -85,8 +107,13 @@ def build_safe_context(docs):
             continue
         seen_content.add(text_hash)
 
-        # Security check
-        info = firewall.inspect_document_text(text)
+        # LLM judge — semantic indirect injection detection
+        if judge_flags[i]:
+            removed.append({"filename": filename, "reason": "llm_judge_malicious"})
+            continue
+
+        # Regex + canary + PII check
+        info = firewall.inspect_document_text(text, source=source_path)
         if not info.get("include"):
             removed.append({
                 "filename": filename,
@@ -95,6 +122,10 @@ def build_safe_context(docs):
             continue
 
         safe_text = (info.get("safe_text") or "")[:MAX_CHARS_PER_CHUNK]
+
+        # Pass 2: LLM judge catches obfuscated PII that regex missed
+        safe_text = llm_judge.scan_pii(safe_text)
+
         if safe_text.strip():
             parts.append(f"[{filename}]\n{safe_text}")
             # Track this source as actually used
@@ -110,13 +141,13 @@ def build_safe_context(docs):
 
     if not parts:
         blocked_reason = removed[0].get("reason") if removed else "no_relevant_context"
-        return "[No relevant context found]", [], blocked_reason
+        return "[No relevant context found]", [], blocked_reason, removed
 
     header = ""
     if removed:
         header = f"[Note: {len(removed)} chunk(s) filtered for security]\n\n"
 
-    return header + "\n\n---\n\n".join(parts), used_sources, None
+    return header + "\n\n---\n\n".join(parts), used_sources, None, removed
 
 
 # -------------------------

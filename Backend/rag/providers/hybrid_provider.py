@@ -11,8 +11,11 @@ Vector DB: Uses same in-memory Chroma as LocalRAGProvider (backend/data/docs/)
 """
 
 import os
+import logging
 
 from langchain_core.documents import Document
+
+_log = logging.getLogger("zerosec.rag")
 
 from backend.rag.providers.base import BaseRAGProvider, RetrievalResult, GenerationResult
 from backend.rag.retriever import retrieve_with_scores, _ensure_vectorstore
@@ -48,7 +51,7 @@ class HybridRAGProvider(BaseRAGProvider):
             raise ValueError("GROQ_API_KEY is required for hybrid provider")
         self._groq = Groq(api_key=groq_api_key)
 
-        print(f"[HybridRAGProvider] Ready — LLM: groq/{self._llm_model}, VectorDB: chroma (same as local)")
+        _log.info("[HybridRAGProvider] Ready — LLM: groq/%s, VectorDB: chroma", self._llm_model)
 
     def retrieve(self, query: str) -> list[RetrievalResult]:
         """
@@ -63,7 +66,7 @@ class HybridRAGProvider(BaseRAGProvider):
         Send the complete RAG prompt to Groq.
         Passes the full prompt as a single user message - same behavior as Ollama.
         """
-        print(f"[HybridRAG] Sending prompt ({len(prompt)} chars) to Groq...")
+        _log.debug("[HybridRAG] Sending prompt (%d chars) to Groq", len(prompt))
 
         response = self._groq.chat.completions.create(
             model=self._llm_model,
@@ -74,7 +77,7 @@ class HybridRAGProvider(BaseRAGProvider):
             ]
         )
         raw_text = response.choices[0].message.content or ""
-        print(f"[HybridRAG] Response: {raw_text[:200]}...")
+        _log.debug("[HybridRAG] Response: %s...", raw_text[:200])
         return GenerationResult(raw_text=raw_text, provider="hybrid")
 
     def ingest_documents(self, documents: list[Document]) -> None:

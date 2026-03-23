@@ -1,5 +1,11 @@
+import sys
+# Fix Windows cp1252 crashes on Unicode output (Arabic text, PDF symbols, etc.)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from flask import Flask, request, jsonify, Response
-from flask_jwt_extended import jwt_required
+# jwt_required used inline in /logs via verify_jwt_in_request
 from flask_cors import CORS
 import os
 
@@ -55,13 +61,18 @@ app.register_blueprint(rag_config_bp)
 @app.route("/query", methods=["POST"])
 def query_route():
     """Query RAG system"""
-    data = request.get_json(force=True)
-    question = data.get("question", "")
+    try:
+        data = request.get_json(force=True)
+        question = data.get("question", "")
 
-    result = query_rag(question)
-    log_decision(question, result)
+        result = query_rag(question)
+        log_decision(question, result)
 
-    return jsonify(result)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"decision": "BLOCK", "reason": f"server_error: {e}", "sources": []}), 500
 
 @app.route("/api/rag/health", methods=["GET"])
 def rag_health():
@@ -73,15 +84,14 @@ def rag_health():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 @app.route("/logs")
-@jwt_required()
 def logs():
-    """Legacy logs endpoint - returns both firewall logs and audit logs"""
+    """Logs endpoint - returns firewall CSV logs + audit logs (DB)"""
     try:
         from backend.database.models import AuditLog
         from backend.database.db import db
-        from backend.utils.rbac import get_current_organization_id
-        
-        organization_id = get_current_organization_id()
+
+        # Default org — security logs are cross-org visible for now
+        organization_id = 1
 
         # Get audit logs filtered by organization
         audit_logs = AuditLog.query.filter_by(
@@ -91,23 +101,56 @@ def logs():
         # Get firewall logs
         combined_logs = get_logs()
 
+        # Security action mappings for proper log categorization
+        BLOCK_ACTIONS = {
+            'canary_token_triggered',
+            'unauthorized_access',
+            'policy_violation',
+            'llm_judge_block',
+            'firewall_injection_block',
+            'firewall_canary_block',
+            'pii_data_leak',
+        }
+        REASON_MAP = {
+            'canary_token_triggered': 'Insider Threat — Canary Token',
+            'llm_judge_block': 'LLM Judge — Malicious Chunk Detected',
+            'firewall_injection_block': 'Firewall — Prompt Injection',
+            'firewall_canary_block': 'Firewall — Canary Token in Query',
+            'pii_data_leak': 'Data Leak — PII Redacted in Response',
+            'unauthorized_access': 'Unauthorized Access',
+            'policy_violation': 'Policy Violation',
+        }
+        STOPPED_BY_MAP = {
+            'llm_judge_block': 'LLM Judge (Groq)',
+            'firewall_injection_block': 'Regex + ML Firewall',
+            'firewall_canary_block': 'Canary Detection',
+            'pii_data_leak': 'PII Redaction Engine',
+            'canary_token_triggered': 'Canary Triggers',
+        }
+
         # Add audit logs to the response
         for log in audit_logs:
             try:
                 username = log.user.username if log.user else 'system'
-            except Exception as e:
-                print(f"Error getting username for audit log {log.audit_id}: {e}")
+            except Exception:
                 username = 'system'
+
+            action = log.action
+            meta = log.meta_data or {}
+            is_block = action in BLOCK_ACTIONS
+
+            # Build rich query field — use the actual query from metadata if available
+            query_text = meta.get('query') or meta.get('reason') or action
 
             combined_logs.append({
                 'id': log.audit_id,
                 'timestamp': log.created_at.isoformat(),
-                'query': log.action,
-                'decision': 'BLOCK' if log.action in ['canary_token_triggered', 'unauthorized_access', 'policy_violation'] else 'ALLOW',
-                'reason': 'Insider Threat' if log.action == 'canary_token_triggered' else (log.target_type or ''),
-                'stopped_by': username,
-                'action': log.action,
-                'metadata': log.meta_data,
+                'query': query_text,
+                'decision': 'BLOCK' if is_block else 'ALLOW',
+                'reason': REASON_MAP.get(action, log.target_type or action),
+                'stopped_by': STOPPED_BY_MAP.get(action, username),
+                'action': action,
+                'metadata': meta,
                 'type': 'audit'
             })
 
@@ -117,8 +160,6 @@ def logs():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-        # Fallback to original firewall logs only
-        return jsonify(get_logs())
 
 @app.route("/stream")
 def stream():

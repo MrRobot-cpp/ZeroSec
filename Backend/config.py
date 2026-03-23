@@ -1,8 +1,10 @@
 import os
+from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from backend/ directory regardless of working directory
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 class Config:
     """Base configuration"""

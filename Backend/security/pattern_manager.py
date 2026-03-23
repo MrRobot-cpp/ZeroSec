@@ -63,7 +63,7 @@ def _get_default_patterns() -> Dict:
             'phone': {'pattern': r'\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]\d{4}\b', 'flags': []},
             'phone_intl': {'pattern': r'(?<!\w)\+\d{1,3}[-.\s]\d{1,4}[-.\s]\d{1,4}[-.\s]\d{1,9}(?!\d)', 'flags': []},
             'phone_eg': {'pattern': r'\b0[12][0-9]{9}\b', 'flags': []},
-            'ssn': {'pattern': r'\b\d{3}[-\s]\d{2}[-\s]\d{4}\b', 'flags': []},
+            'ssn': {'pattern': r'\b\d{3}[-\s]+\d{2}[-\s]+\d{4}\b', 'flags': []},
             'national_id': {'pattern': r'\b[23]\d{13}\b', 'flags': []},
             'national_id_arabic': {'pattern': r'[\u0660-\u0669]{9,14}', 'flags': []},
             'cc_like': {'pattern': r'(?<!\d)(?:4[0-9]{3}|5[1-5][0-9]{2}|3[47][0-9]{2}|6(?:011|5[0-9]{2}))(?:[-\s]?[0-9]{4}){3}(?!\d)', 'flags': []},
@@ -122,11 +122,26 @@ def _get_default_patterns() -> Dict:
             {'pattern': r'\b(?:dump|leak|expose|extract)\s+(?:your\s+)?(?:internal|system|hidden)?\s*(?:memory|data|config|secrets?)\b', 'flags': ['IGNORECASE']},
             {'pattern': r'\bbypass\s+(?:your\s+)?(?:security|safety|filters?|restrictions?|guidelines?)\b', 'flags': ['IGNORECASE']},
 
+            # --- PII policy bypass attempts ---
+            {'pattern': r'(?:show|display|reveal|keep|print)\s+(?:last|first)\s+\d+\s+digits?', 'flags': ['IGNORECASE']},
+            {'pattern': r"(?:don'?t|do\s+not|skip|disable|stop)\s+(?:redact|mask|censor|filter|hide)", 'flags': ['IGNORECASE']},
+            {'pattern': r"(?:it['\s]s\s+)?(?:fake|fictional|test|dummy|sample|made.?up)\s+(?:data|info(?:rmation)?|number|content)", 'flags': ['IGNORECASE']},
+            {'pattern': r'(?:no\s+need\s+to|you\s+(?:don\'t|do\s+not)\s+need\s+to)\s+(?:redact|mask|censor|hide|filter)', 'flags': ['IGNORECASE']},
+            {'pattern': r'(?:unmask|unredact|uncensor)\b', 'flags': ['IGNORECASE']},
+            {'pattern': r'show\s+(?:raw|original|unmasked|unredacted|full)\s+(?:data|text|value|number|output)', 'flags': ['IGNORECASE']},
+
             # --- Token injection markers ---
             {'pattern': r'\[\[(?:SYSTEM|ADMIN|IGNORE|OVERRIDE)\]\]', 'flags': ['IGNORECASE']},
             {'pattern': r'<\|(?:im_start|im_end|system|endoftext)\|>', 'flags': ['IGNORECASE']},
             {'pattern': r'###\s*(?:SYSTEM|INSTRUCTION|OVERRIDE)', 'flags': ['IGNORECASE']},
             {'pattern': r'\[INST\]|\[/INST\]', 'flags': ['IGNORECASE']},
+
+            # --- Arabic / multilingual injection ---
+            {'pattern': r'تجاهل\s+(?:جميع\s+)?(?:التعليمات|الأوامر|القواعد)', 'flags': []},
+            {'pattern': r'(?:تجاهل|تجاوز)\s+(?:نظام|قواعد)', 'flags': []},
+            {'pattern': r'أنت\s+الآن\s+(?:بدون|حر\s+من)', 'flags': []},
+            {'pattern': r'(?:قواعد|قيود|ضوابط)\s+(?:النظام|الأمان)', 'flags': []},
+            {'pattern': r'[\u0600-\u06FF]+\s+(?:override|ignore|bypass|system)', 'flags': ['IGNORECASE']},
         ],
         'sql': [
             {'pattern': r"'\s*(?:OR|AND)\s+'?\d*'?\s*=\s*'?\d*", 'flags': ['IGNORECASE']},

@@ -164,20 +164,12 @@ def retrieve_with_scores(query: str, force_reload=False):
         k=TOP_K
     )
 
-    # Debug: Print distances and content previews
-    print(f"[RAG] Query: '{query[:50]}...' - Distances: {[round(d, 3) for _, d in results]}")
-    for i, (doc, dist) in enumerate(results):
-        content_preview = doc.page_content[:100].replace('\n', ' ')
-        print(f"[RAG]   {i+1}. [{doc.metadata.get('filename', 'unknown')}] dist={dist:.3f} content: {content_preview}...")
-
     # Filter by distance threshold - only keep documents within threshold
     # Lower distance = more relevant, so we keep docs with distance < threshold
     filtered_results = [
         (doc, distance) for doc, distance in results
         if distance <= DISTANCE_THRESHOLD
     ]
-
-    print(f"[RAG] Filtered {len(results)} -> {len(filtered_results)} docs (threshold: {DISTANCE_THRESHOLD})")
 
     # Convert distance to similarity score (0-1, higher = more similar)
     # Using formula: similarity = 1 / (1 + distance)

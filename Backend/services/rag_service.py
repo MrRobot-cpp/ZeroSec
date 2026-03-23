@@ -1,3 +1,5 @@
+import logging
+
 from backend.rag.providers import get_provider
 from backend.rag.prompt_builder import (
     build_safe_context,
@@ -6,6 +8,25 @@ from backend.rag.prompt_builder import (
     preprocess_query
 )
 from backend.security import firewall
+from backend.services.logging_service import log_decision
+
+_log = logging.getLogger("zerosec.security")
+
+
+def _log_security_event(org_id, user_id, action, reason, query, score):
+    """Persist a security block to the database. Fails silently if unavailable."""
+    try:
+        from backend.database.repository import SecurityRepository
+        SecurityRepository.log_firewall_block(
+            organization_id=org_id or 1,
+            user_id=user_id,
+            action=action,
+            reason=reason,
+            query=query,
+            score=score,
+        )
+    except Exception as exc:
+        _log.debug("[rag_service] DB security log skipped: %s", exc)
 
 # Debug mode - set to True to see prompts being sent to LLM
 DEBUG_RAG = True
@@ -57,7 +78,7 @@ def refresh_retriever(new_file_path=None, deleted_filename=None):
         provider.ingest_documents(load_all_documents())
 
 
-def query_rag(question: str) -> dict:
+def query_rag(question: str, org_id: int = None, user_id: int = None) -> dict:
     """
     Optimized RAG pipeline:
     1. Input validation & security
@@ -83,20 +104,26 @@ def query_rag(question: str) -> dict:
         }
 
     # 1. Input firewall
-    inj, _ = firewall.detect_injection(question)
+    inj, inj_score = firewall.detect_injection(question)
     if inj:
+        _log_security_event(org_id, user_id, "firewall_injection_block",
+                            "prompt_injection", question, inj_score)
         return {
             "decision": "BLOCK",
-            "reason": "prompt_injection",
+            "reason": "Firewall — Prompt Injection",
+            "stopped_by": "Regex + ML Firewall",
             "answer": "SECURITY ALERT: This request has been blocked by ZeroSec Intrusion Detection system. Potential injection attempt detected.",
             "sources": []
         }
 
     # Check for Canary Tokens in input question
     if firewall._check_canary_tokens(question):
+        _log_security_event(org_id, user_id, "firewall_canary_block",
+                            "canary_token_detected", question, 1.0)
         return {
             "decision": "BLOCK",
-            "reason": "canary_token_detected",
+            "reason": "Firewall — Canary Token in Query",
+            "stopped_by": "Canary Detection",
             "answer": "ACCESS DENIED: Your request contains highly sensitive forensic markers (Canary Tokens). This action has been blocked by ZeroSec Canary Triggers Detection.",
             "sources": []
         }
@@ -122,7 +149,32 @@ def query_rag(question: str) -> dict:
     docs = [doc for doc, _ in results_with_scores]
 
     # 4. Build safe context and get actually used sources
-    context, used_sources, blocked_reason = build_safe_context(docs)
+    context, used_sources, blocked_reason, removed_chunks = build_safe_context(
+        docs, query=question, org_id=org_id, user_id=user_id
+    )
+
+    # Log each removed chunk as a security event (visible in Logs & Alerts page)
+    for removed in removed_chunks:
+        reason = removed.get("reason", "security_filter")
+        filename = removed.get("filename", "unknown")
+        if reason == "llm_judge_malicious":
+            log_decision(question, {
+                "decision": "BLOCK",
+                "reason": f"LLM Judge — Malicious chunk in {filename}",
+                "stopped_by": "LLM Judge (Groq)",
+            })
+        elif reason == "canary_token_detected":
+            log_decision(question, {
+                "decision": "BLOCK",
+                "reason": f"Canary Token detected in {filename}",
+                "stopped_by": "Canary Detection",
+            })
+        else:
+            log_decision(question, {
+                "decision": "BLOCK",
+                "reason": f"Firewall — {reason} in {filename}",
+                "stopped_by": "Regex + ML Firewall",
+            })
 
     # Add relevance scores to sources for transparency
     source_scores = {doc.metadata.get('filename', ''): score for doc, score in results_with_scores}
@@ -149,16 +201,11 @@ def query_rag(question: str) -> dict:
     # 5. Build prompt
     prompt = build_prompt(context, question)
 
-    # Debug: Print what we're sending to the LLM
+    # Debug: Log what we're sending to the LLM (using logger to avoid Windows cp1252 crashes)
     if DEBUG_RAG:
-        print(f"\n{'='*60}")
-        print(f"[RAG DEBUG] Question: {question}")
-        print(f"[RAG DEBUG] Context length: {len(context)} chars")
-        print(f"[RAG DEBUG] Number of sources: {len(used_sources)}")
-        print(f"[RAG DEBUG] Prompt being sent:")
-        print(f"{'-'*40}")
-        print(prompt[:1500] + "..." if len(prompt) > 1500 else prompt)
-        print(f"{'='*60}\n")
+        _log.debug("[RAG] Question: %s", question)
+        _log.debug("[RAG] Context length: %d chars, Sources: %d", len(context), len(used_sources))
+        _log.debug("[RAG] Prompt (first 1500): %s", prompt[:1500])
 
     # Note: Skip firewall check on internally-built prompt (only check user input)
 
@@ -169,9 +216,9 @@ def query_rag(question: str) -> dict:
         answer = clean_rag_output(raw_answer)
 
         if DEBUG_RAG:
-            print(f"[RAG DEBUG] Provider: {generation.provider}")
-            print(f"[RAG DEBUG] Raw LLM response: {raw_answer[:500]}...")
-            print(f"[RAG DEBUG] Cleaned answer: {answer[:500]}...")
+            _log.debug("[RAG] Provider: %s", generation.provider)
+            _log.debug("[RAG] Raw response (500): %s", raw_answer[:500])
+            _log.debug("[RAG] Cleaned answer (500): %s", answer[:500])
     except Exception as e:
         return {
             "decision": "BLOCK",
@@ -189,16 +236,44 @@ def query_rag(question: str) -> dict:
     # 7. Output security — run firewall on LLM response to catch jailbreaks
     is_jailbreak, jailbreak_reason = firewall.inspect_llm_output(answer)
     if is_jailbreak:
-        print(f"[SECURITY] Jailbreak detected in LLM output: {jailbreak_reason}")
+        _log.warning("[SECURITY] Jailbreak detected in LLM output: %s", jailbreak_reason)
         return {
             "decision": "BLOCK",
-            "reason": jailbreak_reason,
+            "reason": f"Jailbreak — {jailbreak_reason}",
+            "stopped_by": "Output Firewall",
             "answer": "SECURITY ALERT: This response has been blocked by ZeroSec. The LLM output was flagged as a potential jailbreak attempt.",
             "sources": []
         }
 
-    # 8. PII enforcement (Redact sensitive info but keep the answer)
+    # 8. PII enforcement — two-pass redaction
+    # Pass 1: Regex redaction (fast, deterministic — catches standard PII formats)
     final_answer = firewall.redact_pii(answer)
+
+    regex_redacted = final_answer != answer
+    if regex_redacted:
+        _log.warning("[PII] Pass 1 (regex) — PII redacted from response for query: %s", question[:100])
+
+    # Pass 2: LLM judge PII scan (catches obfuscated/spelled-out/split PII regex missed)
+    from backend.security.llm_judge import scan_pii
+    after_llm_pii = scan_pii(final_answer)
+
+    llm_redacted = after_llm_pii != final_answer
+    if llm_redacted:
+        _log.warning("[PII] Pass 2 (LLM) — obfuscated PII caught by judge for query: %s", question[:100])
+        final_answer = after_llm_pii
+
+    # Log if either pass redacted something
+    if regex_redacted or llm_redacted:
+        stopped_by = "PII Redaction Engine"
+        if llm_redacted:
+            stopped_by = "PII Redaction Engine + LLM Judge"
+        _log_security_event(org_id, user_id, "pii_data_leak",
+                            "pii_redacted_in_response", question, 1.0)
+        log_decision(question, {
+            "decision": "BLOCK",
+            "reason": "Data Leak — PII redacted from response",
+            "stopped_by": stopped_by,
+        })
 
     return {
         "decision": "ALLOW",

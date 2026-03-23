@@ -1,5 +1,8 @@
 import os
+import logging
 from langchain_core.documents import Document
+
+_log = logging.getLogger("zerosec.rag")
 
 from backend.rag.providers.base import BaseRAGProvider, RetrievalResult, GenerationResult
 from backend.rag.chunker import chunk_documents
@@ -45,7 +48,7 @@ class ExternalRAGProvider(BaseRAGProvider):
         self._groq = Groq(api_key=groq_api_key)
 
         # Embeddings run locally via sentence-transformers (no API key needed)
-        print("[ExternalRAGProvider] Loading sentence-transformers embeddings model...")
+        _log.info("[ExternalRAGProvider] Loading sentence-transformers embeddings model...")
         self._embeddings = HuggingFaceEmbeddings(model_name=self.EMBEDDING_MODEL)
 
         qdrant_url = cfg.get("qdrant_url") or os.getenv("QDRANT_URL")
@@ -62,7 +65,7 @@ class ExternalRAGProvider(BaseRAGProvider):
             embedding=self._embeddings
         )
 
-        print(f"[ExternalRAGProvider] Ready — LLM: {self._llm_model}, VectorDB: {self._collection}")
+        _log.info(f"[ExternalRAGProvider] Ready — LLM: {self._llm_model}, VectorDB: {self._collection}")
 
     def _ensure_collection(self, Distance, VectorParams) -> None:
         """Create the Qdrant collection if it doesn't exist yet."""
@@ -73,7 +76,7 @@ class ExternalRAGProvider(BaseRAGProvider):
                 collection_name=self._collection,
                 vectors_config=VectorParams(size=self.VECTOR_SIZE, distance=Distance.COSINE)
             )
-            print(f"[ExternalRAGProvider] Created Qdrant collection: {self._collection}")
+            _log.info(f"[ExternalRAGProvider] Created Qdrant collection: {self._collection}")
 
     def retrieve(self, query: str) -> list[RetrievalResult]:
         """
@@ -132,7 +135,7 @@ class ExternalRAGProvider(BaseRAGProvider):
         chunked = chunk_documents(documents)
         if chunked:
             self._vectorstore.add_documents(chunked)
-            print(f"[ExternalRAGProvider] Ingested {len(chunked)} chunks into Qdrant")
+            _log.info(f"[ExternalRAGProvider] Ingested {len(chunked)} chunks into Qdrant")
 
     def delete_documents(self, filenames: list[str]) -> None:
         """Delete all Qdrant points where metadata.filename matches."""

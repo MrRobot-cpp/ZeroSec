@@ -18,6 +18,8 @@ def get_dashboard_overview():
     organization_id = claims.get('organization_id')
 
     try:
+        from backend.security import llm_judge, firewall
+
         # Gather all metrics
         document_stats = DashboardRepository.get_document_stats(organization_id)
         security_stats = DashboardRepository.get_security_stats(organization_id)
@@ -27,7 +29,11 @@ def get_dashboard_overview():
 
         overview = {
             'documents': document_stats,
-            'security': security_stats,
+            'security': {
+                **security_stats,
+                'firewall': firewall.get_stats(),
+                'llm_judge': llm_judge.get_stats(),
+            },
             'users': user_activity,
             'policies': policy_stats,
             'system_health': system_health
@@ -156,6 +162,20 @@ def get_dashboard_alerts():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@dashboard_bp.route('/api/dashboard/judge', methods=['GET'])
+@jwt_required()
+def get_judge_status():
+    """Get LLM judge stats and recent incidents."""
+    from backend.security import llm_judge
+
+    limit = request.args.get('limit', 50, type=int)
+
+    return jsonify({
+        'stats': llm_judge.get_stats(),
+        'incidents': llm_judge.get_incidents(limit=limit),
+    }), 200
 
 
 @dashboard_bp.route('/api/metrics', methods=['GET'])

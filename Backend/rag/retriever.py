@@ -15,7 +15,7 @@ EMBEDDING_MODEL = "nomic-embed-text"  # Proper embedding model for semantic sear
 
 # Chunking config
 CHUNK_SIZE = 1000  # Larger chunks = fewer chunks, more context per chunk
-CHUNK_OVERLAP = 100  # Overlap to maintain context between chunks
+CHUNK_OVERLAP = 200  # Higher overlap preserves context at chunk boundaries
 
 # Retriever config - tuned for better recall
 TOP_K = 10  # Retrieve more candidates
@@ -46,6 +46,40 @@ def _compute_files_hash():
     return md5("|".join(hash_parts).encode()).hexdigest()
 
 
+def _clean_pdf_text(text: str) -> str:
+    """Clean PDF-extracted text: remove repeated TOC/slide headers and normalize."""
+    import re
+    lines = text.split('\n')
+
+    # Detect repeated blocks (slide TOC headers that appear on every page)
+    line_counts = {}
+    for line in lines:
+        stripped = line.strip()
+        if len(stripped) > 10:
+            line_counts[stripped] = line_counts.get(stripped, 0) + 1
+
+    # Lines appearing 3+ times are repeated headers/footers — remove duplicates
+    seen_repeated = set()
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        if line_counts.get(stripped, 0) >= 3:
+            if stripped in seen_repeated:
+                continue  # skip duplicate
+            seen_repeated.add(stripped)  # keep first occurrence
+        cleaned.append(line)
+
+    text = '\n'.join(cleaned)
+
+    # Collapse 3+ consecutive newlines into 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    # Replace common PDF bullet artifacts with clean bullets
+    text = text.replace('\uf0d8', '- ')
+
+    return text.strip()
+
+
 def extract_text_from_file(file_path):
     """Extract text from various file formats."""
     ext = file_path.suffix.lower()
@@ -60,7 +94,8 @@ def extract_text_from_file(file_path):
                 import PyPDF2
                 with open(file_path, 'rb') as f:
                     reader = PyPDF2.PdfReader(f)
-                    return '\n'.join(page.extract_text() or '' for page in reader.pages)
+                    raw = '\n'.join(page.extract_text() or '' for page in reader.pages)
+                    return _clean_pdf_text(raw)
             except Exception:
                 return ""
 
@@ -177,6 +212,12 @@ def retrieve_with_scores(query: str, force_reload=False):
         (doc, round(1 / (1 + distance), 3))
         for doc, distance in filtered_results
     ]
+
+    # Sort by similarity (best first) — Chroma doesn't guarantee order
+    scored_results.sort(key=lambda x: x[1], reverse=True)
+
+    # Drop low-quality chunks that add noise
+    scored_results = [(doc, score) for doc, score in scored_results if score >= 0.45]
 
     # Limit to max results
     scored_results = scored_results[:MAX_RESULTS]

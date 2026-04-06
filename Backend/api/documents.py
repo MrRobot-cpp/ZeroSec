@@ -15,6 +15,7 @@ documents_bp = Blueprint('documents', __name__, url_prefix='/api')
 # Path configuration
 BASE_DIR = Path(__file__).resolve().parents[1]
 DOCS_PATH = BASE_DIR / "data" / "docs"
+HIGH_DOCS_PATH = BASE_DIR / "data" / "docs" / "high"
 CONVERTED_PATH = BASE_DIR / "data" / "docs_converted"
 METADATA_PATH = BASE_DIR / "data" / "docs_metadata.json"
 
@@ -135,6 +136,60 @@ def scan_document(filename, content):
 
     return issues
 
+def _ingest_high_sensitivity(file_path: Path, filename: str, doc_id: str, text_content: str) -> None:
+    """
+    Encrypted ingest pipeline for HIGH sensitivity documents.
+
+    1. Move file to data/docs/high/
+    2. Ingest text into SecureRAGProvider (Chroma chunk_ids + enc_store ciphertext)
+    3. Overwrite original file with AES-256-GCM encrypted bytes
+    """
+    from flask import current_app
+    from langchain_core.documents import Document as LCDocument
+    from backend.api.secure_query import _get_secure_provider
+    from backend.security.sag_crypto import encrypt, derive_key
+
+    try:
+        # 1. Move file to high/ directory
+        import shutil
+        HIGH_DOCS_PATH.mkdir(parents=True, exist_ok=True)
+        high_file_path = HIGH_DOCS_PATH / filename
+        shutil.move(str(file_path), str(high_file_path))
+
+        # 2. Ingest into encrypted pipeline
+        provider = _get_secure_provider()
+        doc = LCDocument(
+            page_content=text_content,
+            metadata={
+                'source':   str(high_file_path),
+                'filename': filename,
+                'file_type': file_path.suffix,
+                'doc_id':   doc_id,
+            }
+        )
+        provider.ingest_documents([doc])
+
+        # 3. Overwrite file on disk with AES-256-GCM encrypted bytes
+        secret_key = current_app.config.get('SECRET_KEY', '')
+        key_version = current_app.config.get('SAG_KEY_VERSION', 1)
+        key = derive_key(secret_key, doc_id, 'HIGH', key_version)
+        raw_bytes = high_file_path.read_bytes()
+        ciphertext, nonce, auth_tag = encrypt(raw_bytes, key)
+        high_file_path.write_bytes(nonce + auth_tag + ciphertext)
+
+        import logging
+        logging.getLogger("zerosec.documents").info(
+            "[HIGH ingest] %s ingested and encrypted on disk", filename
+        )
+
+    except Exception as exc:
+        import logging
+        logging.getLogger("zerosec.documents").error(
+            "[HIGH ingest] failed for %s: %s", filename, exc
+        )
+        raise
+
+
 @documents_bp.route('/documents', methods=['GET'])
 @jwt_required()
 @require_permission('read')
@@ -243,11 +298,15 @@ def upload_document():
             metadata={'filename': filename, 'sensitivity': sensitivity, 'issues_count': len(issues)}
         )
 
-        # Auto-refresh vectorstore
-        try:
-            refresh_retriever()
-        except Exception:
-            pass
+        # Route based on sensitivity
+        if sensitivity == 'High':
+            _ingest_high_sensitivity(file_path, filename, str(document.document_id), text_content)
+        else:
+            # Standard pipeline — refresh Chroma vectorstore
+            try:
+                refresh_retriever()
+            except Exception:
+                pass
 
         return jsonify({
             'message': 'File uploaded successfully',
@@ -337,11 +396,22 @@ def delete_document(document_id):
             return jsonify({'error': 'Document not found'}), 404
 
         filename = document.filename
-        file_path = DOCS_PATH / filename
 
-        # Delete the physical file if it exists
-        if file_path.exists():
-            file_path.unlink()
+        # Delete physical file — check both standard and high/ paths
+        for candidate in [DOCS_PATH / filename, HIGH_DOCS_PATH / filename]:
+            if candidate.exists():
+                candidate.unlink()
+
+        # If HIGH sensitivity, remove from encrypted pipeline
+        if document.sensitivity == 'High':
+            try:
+                from backend.api.secure_query import _get_secure_provider
+                _get_secure_provider().delete_documents([filename])
+            except Exception as exc:
+                import logging
+                logging.getLogger("zerosec.documents").warning(
+                    "[delete] encrypted pipeline cleanup failed for %s: %s", filename, exc
+                )
 
         # Delete from database (cascades to uploads, canary tokens, etc.)
         DocumentRepository.delete_document(document_id)

@@ -2,6 +2,8 @@
 // Handles communication with the backend RAG endpoints
 // Backend is running on port 5200 and endpoint is at /query
 
+import apiClient from "@/services/apiClient";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5200";
 
 /**
@@ -104,8 +106,51 @@ export async function clearChatHistory() {
   }
 }
 
+/**
+ * Send a query to the encrypted RAG pipeline (HIGH sensitivity documents).
+ * Requires a valid JWT — automatically attached via apiClient.
+ * @param {string} question
+ * @returns {Promise<Object>}
+ */
+export async function querySecureRag(question) {
+  try {
+    const response = await apiClient.post("/api/secure-query", { question });
+
+    if (response.status === 401) {
+      throw new Error("Session expired — please log in again");
+    }
+    if (response.status === 403) {
+      throw new Error("HIGH clearance required to access encrypted chat");
+    }
+    if (response.status === 503) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.reason || "Encrypted chat service unavailable");
+    }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || errorData.reason || `HTTP error ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.decision === "BLOCK") {
+      throw new Error(`Blocked by security: ${data.reason || "Unknown reason"}`);
+    }
+
+    return {
+      answer: data.answer || "No answer provided",
+      sources: data.sources || [],
+      metadata: { decision: data.decision, provider: data.provider },
+    };
+  } catch (error) {
+    console.error("Error querying secure RAG:", error);
+    throw new Error(error.message || "Failed to get response from encrypted chat");
+  }
+}
+
 export default {
   queryRag,
+  querySecureRag,
   getChatHistory,
   clearChatHistory,
 };

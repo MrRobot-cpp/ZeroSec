@@ -91,17 +91,30 @@ export async function uploadDocument(file, sensitivity = "medium") {
  * @param {number} documentId - The ID of the document to delete
  * @returns {Promise<Object>} - Deletion response
  */
-export async function deleteDocument(documentId) {
+export async function deleteDocument(documentId, documentName) {
   try {
-    const response = await apiClient.delete(`/api/documents/${documentId}`);
+    // Try authenticated endpoint first (uses numeric ID)
+    try {
+      const response = await apiClient.delete(`/api/documents/${documentId}`);
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch (authError) {
+      console.log('Auth delete failed, trying legacy...');
+    }
+
+    // Fallback to legacy endpoint (uses filename)
+    const name = documentName || documentId;
+    const response = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
     }
 
-    const data = await response.json();
-    return data;
+    return await response.json();
   } catch (error) {
     console.error("Error deleting document:", error);
     throw new Error(`Failed to delete document: ${error.message}`);

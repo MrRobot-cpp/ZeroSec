@@ -124,10 +124,18 @@ def extract_text_from_file(file_path):
 
 
 def load_all_documents():
-    """Load all documents from docs directory."""
+    """
+    Load all documents from docs directory.
+    Excludes data/docs/high/ — HIGH sensitivity files are handled by the
+    encrypted pipeline (SecureRAGProvider) and must never enter standard Chroma.
+    """
     documents = []
+    high_dir = DOCS_PATH / "high"
 
     for file_path in DOCS_PATH.glob('*.*'):
+        # Skip anything inside the high/ subdirectory
+        if high_dir in file_path.parents:
+            continue
         if file_path.is_file():
             text = extract_text_from_file(file_path)
             if text and text.strip():

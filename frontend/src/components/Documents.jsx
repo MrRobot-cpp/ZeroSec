@@ -9,6 +9,7 @@ export default function Documents() {
   const [uploadError, setUploadError] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [sensitivity, setSensitivity] = useState("medium");
   const fileInputRef = useRef(null);
 
   const viewDocument = (documentId) => {
@@ -23,7 +24,7 @@ export default function Documents() {
     setUploadSuccess(null);
 
     try {
-      const result = await upload(file);
+      const result = await upload(file, sensitivity);
       setUploadSuccess(`File "${file.name}" uploaded successfully!`);
       // Clear the file input
       if (fileInputRef.current) {
@@ -38,7 +39,7 @@ export default function Documents() {
 
   const handleDelete = async (documentId, documentName) => {
     try {
-      await remove(documentId);
+      await remove(documentId, documentName);
       setDeleteConfirm(null);
       setUploadSuccess(`File "${documentName}" deleted successfully!`);
       setTimeout(() => setUploadSuccess(null), 5000);
@@ -87,7 +88,17 @@ export default function Documents() {
               Upload any file type (.pdf, .docx, .doc, .txt, etc.) - RAG reads them automatically
             </p>
           </div>
-          <div>
+          <div className="flex items-center gap-2">
+            <select
+              value={sensitivity}
+              onChange={(e) => setSensitivity(e.target.value)}
+              disabled={uploading}
+              className="px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
             <label
               htmlFor="file-upload"
               className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium cursor-pointer transition-all duration-200 inline-flex items-center gap-2 ${

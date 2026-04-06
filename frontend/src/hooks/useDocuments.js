@@ -56,10 +56,10 @@ export default function useDocuments() {
    * @param {string} filename - The name of the file to delete
    * @returns {Promise<Object>} - Deletion result
    */
-  const remove = useCallback(async (filename) => {
+  const remove = useCallback(async (documentId, documentName) => {
     setError(null);
     try {
-      const result = await deleteDocument(filename);
+      const result = await deleteDocument(documentId, documentName);
       // Refresh the documents list after successful deletion
       await fetchDocuments();
       return result;

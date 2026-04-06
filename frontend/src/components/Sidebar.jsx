@@ -40,7 +40,7 @@ export default function Sidebar() {
   const visibleBottomNavItems = filterByPermission(bottomNavItems);
 
   return (
-    <aside className="w-64 bg-gray-900 flex flex-col p-4 border-r border-gray-800">
+    <aside className="fixed top-0 left-0 w-64 h-screen bg-gray-900 flex flex-col p-4 border-r border-gray-800 z-30">
       <h1 className="text-2xl font-bold mb-8">ZeroSec</h1>
 
       {/* Main Navigation */}

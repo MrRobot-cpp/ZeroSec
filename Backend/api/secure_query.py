@@ -97,6 +97,18 @@ def secure_query():
     if inj:
         _log_security_event(org_id, user_id, "firewall_injection_block",
                             "prompt_injection", question, inj_score)
+        log_audit(
+            organization_id=org_id or 1,
+            user_id=user_id,
+            action="firewall_injection_block",
+            target_type="SecureQuery",
+            metadata={"query": question[:200], "score": inj_score},
+        )
+        log_decision(question, {
+            "decision": "BLOCK",
+            "reason": "Firewall — Prompt Injection (encrypted pipeline)",
+            "stopped_by": "Regex + ML Firewall",
+        })
         return jsonify({
             "decision": "BLOCK",
             "reason": "Firewall — Prompt Injection",
@@ -109,6 +121,18 @@ def secure_query():
     if firewall._check_canary_tokens(question):
         _log_security_event(org_id, user_id, "firewall_canary_block",
                             "canary_token_detected", question, 1.0)
+        log_audit(
+            organization_id=org_id or 1,
+            user_id=user_id,
+            action="firewall_canary_block",
+            target_type="SecureQuery",
+            metadata={"query": question[:200]},
+        )
+        log_decision(question, {
+            "decision": "BLOCK",
+            "reason": "Firewall — Canary Token in Query (encrypted pipeline)",
+            "stopped_by": "Canary Detection",
+        })
         return jsonify({
             "decision": "BLOCK",
             "reason": "Firewall — Canary Token in Query",
@@ -138,6 +162,14 @@ def secure_query():
         }), 500
 
     if not results:
+        log_audit(
+            organization_id=org_id or 1,
+            user_id=user_id,
+            action="encrypted_query",
+            target_type="SecureQuery",
+            metadata={"query": question[:200], "sources_count": 0, "result": "no_results"},
+        )
+        log_decision(question, {"decision": "ALLOW", "reason": "encrypted_pipeline — no matching chunks"})
         return jsonify({
             "decision": "ALLOW",
             "answer": "No HIGH sensitivity documents found for your query.",
@@ -151,7 +183,7 @@ def secure_query():
     # Context building with security filters (PII, canary, injection)
     # ------------------------------------------------------------------
     context, used_sources, blocked_reason, removed_chunks = build_safe_context(
-        docs, query=question, org_id=org_id, user_id=user_id
+        docs, query=question, org_id=org_id, user_id=user_id, strip_preview=True
     )
 
     for removed in removed_chunks:
@@ -232,6 +264,11 @@ def secure_query():
             "chunks_filtered":  len(removed_chunks),
         },
     )
+    log_decision(question, {
+        "decision": "ALLOW",
+        "reason":   "encrypted_pipeline",
+        "sources":  [s.get("filename") for s in used_sources],
+    })
 
     return jsonify({
         "decision": "ALLOW",

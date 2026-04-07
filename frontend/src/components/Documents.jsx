@@ -3,6 +3,50 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import useDocuments from "@/hooks/useDocuments";
 
+const SENSITIVITY_STYLES = {
+  low:    { label: "Low",    text: "text-green-400",  bg: "bg-green-900/30",  border: "border-green-600" },
+  medium: { label: "Medium", text: "text-yellow-400", bg: "bg-yellow-900/30", border: "border-yellow-600" },
+  high:   { label: "High",   text: "text-red-400",    bg: "bg-red-900/30",    border: "border-red-600" },
+};
+
+function SensitivityDropdown({ value, onChange, disabled }) {
+  const [open, setOpen] = useState(false);
+  const current = SENSITIVITY_STYLES[value];
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-gray-800 ${current.border} ${current.text}`}
+      >
+        <span className={`w-2 h-2 rounded-full ${current.bg} border ${current.border}`} />
+        {current.label}
+        <svg className="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-1 w-36 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10 overflow-hidden">
+          {Object.entries(SENSITIVITY_STYLES).map(([key, s]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => { onChange(key); setOpen(false); }}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-gray-700 transition-colors ${s.text} ${value === key ? s.bg : ""}`}
+            >
+              <span className={`w-2 h-2 rounded-full border ${s.border} ${s.bg}`} />
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Documents() {
   const router = useRouter();
   const { documents, loading, error, uploading, upload, remove } = useDocuments();
@@ -38,14 +82,13 @@ export default function Documents() {
   };
 
   const handleDelete = async (documentId, documentName) => {
+    setDeleteConfirm(null);
     try {
-      await remove(documentId, documentName);
-      setDeleteConfirm(null);
+      await remove(documentId);
       setUploadSuccess(`File "${documentName}" deleted successfully!`);
       setTimeout(() => setUploadSuccess(null), 5000);
     } catch (err) {
       setUploadError(err.message);
-      setDeleteConfirm(null);
     }
   };
 
@@ -89,23 +132,20 @@ export default function Documents() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <select
+            <SensitivityDropdown
               value={sensitivity}
-              onChange={(e) => setSensitivity(e.target.value)}
+              onChange={setSensitivity}
               disabled={uploading}
-              className="px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
+            />
             <label
               htmlFor="file-upload"
               className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium cursor-pointer transition-all duration-200 inline-flex items-center gap-2 ${
                 uploading ? "opacity-50 cursor-not-allowed" : ""
               }`}
             >
-              <span>📤</span>
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
               {uploading ? "Uploading..." : "Upload Document"}
             </label>
             <input

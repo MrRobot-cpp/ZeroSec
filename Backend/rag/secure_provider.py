@@ -1,16 +1,21 @@
 """
-ZeroSec Secure RAG Provider — Encrypted Pipeline
+ZeroSec Secure RAG Provider — Encrypted Pipeline (Phase 3: Ephemeral Index)
+
 Handles HIGH sensitivity documents only.
 
-Chroma stores:  embedding (computed from plaintext) + chunk_id metadata — NO content
-enc_store.db stores: AES-256-GCM ciphertext + HMAC per chunk
+Security contract:
+- Chroma is IN-MEMORY ONLY — embeddings NEVER written to disk
+- All content is AES-256-GCM encrypted in enc_store.db
+- Every retrieval verifies HMAC before decrypting
+- On startup, index is rebuilt from enc_store (decrypt → embed → in-memory Chroma)
+- On shutdown, all embeddings vanish — nothing to steal from disk
 
 Query flow:
-  1. Embed query via Ollama
+  1. Embed query via HuggingFace (local)
   2. Chroma similarity search → chunk_ids only
   3. HMAC verify + AES-256-GCM decrypt from enc_store
-  4. Return decrypted Documents to the security pipeline (firewall, PII, etc.)
-  5. Build prompt → Ollama generate (local only — no external LLM)
+  4. Return decrypted Documents to the security pipeline
+  5. Build prompt → Groq generate
 """
 
 import os
@@ -31,6 +36,7 @@ from backend.database import enc_store as _enc_store
 
 _log = logging.getLogger("zerosec.secure_provider")
 
+# Legacy persist dir — will be cleaned up if found
 _CHROMA_PERSIST_DIR = Path(__file__).resolve().parent.parent / "data" / "chroma_encrypted"
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -38,8 +44,7 @@ GROQ_LLM_MODEL  = "llama-3.1-8b-instant"
 GROQ_MAX_TOKENS = 512
 GROQ_TEMPERATURE = 0.3
 
-# Retrieval config — relaxed vs standard pipeline because HIGH docs are fewer
-# and academic/technical content produces higher embedding distances.
+# Retrieval config
 TOP_K               = 10
 DISTANCE_THRESHOLD  = 1.8
 MAX_RESULTS         = 5
@@ -50,11 +55,10 @@ class SecureRAGProvider(BaseRAGProvider):
     """
     Encrypted RAG provider for HIGH sensitivity documents.
 
-    Security contract:
-    - Chroma never stores document content — only chunk_ids and embeddings
-    - All content is AES-256-GCM encrypted in enc_store.db
-    - Every retrieval verifies HMAC before decrypting
-    - Only works with local Ollama — no external LLM calls
+    Phase 3 security:
+    - Chroma runs in-memory ONLY — no PersistentClient, no disk writes
+    - Embeddings are rebuilt from enc_store.db on every startup
+    - Disk attacker gets ZERO embedding data
     """
 
     def __init__(self, secret_key: str, hmac_salt: str):
@@ -70,23 +74,101 @@ class SecureRAGProvider(BaseRAGProvider):
         self._hmac_salt  = hmac_salt
         self._embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
         self._vectorstore: Chroma | None = None
+        self._cleanup_legacy_persist_dir()
         self._init_vectorstore()
+        try:
+            self._rebuild_from_enc_store()
+        except Exception as exc:
+            _log.error(
+                "[SecureRAGProvider] enc_store rebuild failed (non-fatal, "
+                "index will be empty until next ingest): %s", exc
+            )
 
     # -------------------------
-    # VECTORSTORE
+    # VECTORSTORE (EPHEMERAL)
     # -------------------------
+
+    def _cleanup_legacy_persist_dir(self) -> None:
+        """
+        Phase 3 migration: delete legacy chroma_encrypted/ directory.
+        These files contained PLAINTEXT embeddings on disk — the vulnerability
+        that Phase 3 eliminates by switching to ephemeral in-memory Chroma.
+        """
+        if _CHROMA_PERSIST_DIR.exists():
+            import shutil
+            try:
+                shutil.rmtree(str(_CHROMA_PERSIST_DIR))
+                _log.warning(
+                    "[SecureRAGProvider] DELETED legacy chroma_encrypted/ — "
+                    "plaintext embeddings removed from disk (Phase 3 migration)"
+                )
+            except Exception as exc:
+                _log.error(
+                    "[SecureRAGProvider] Failed to delete legacy chroma_encrypted/: %s", exc
+                )
 
     def _init_vectorstore(self) -> None:
-        """Load or create a persisted Chroma collection for encrypted chunks."""
-        _CHROMA_PERSIST_DIR.mkdir(parents=True, exist_ok=True)
-        self._chroma_client = chromadb.PersistentClient(path=str(_CHROMA_PERSIST_DIR))
+        """Create an in-memory Chroma collection. Nothing touches disk."""
+        # Use EphemeralClient explicitly — guarantees no disk I/O.
+        # chromadb.Client() is ambiguous across versions and may pick up
+        # stale chroma.sqlite3 files on disk, causing 'no such table' errors.
+        self._chroma_client = chromadb.EphemeralClient()
         self._vectorstore = Chroma(
             client=self._chroma_client,
             collection_name="zerosec_encrypted",
             embedding_function=self._embeddings,
         )
-        count = self._vectorstore._collection.count()
-        _log.info("[SecureRAGProvider] Chroma collection loaded (%d vectors)", count)
+        _log.info("[SecureRAGProvider] Ephemeral in-memory Chroma initialised (Phase 3)")
+
+    def _rebuild_from_enc_store(self) -> None:
+        """
+        Rebuild the in-memory Chroma index from enc_store.db on startup.
+
+        For each stored row:
+          1. Verify HMAC integrity
+          2. Decrypt chunk content
+          3. Embed plaintext → add vector to in-memory Chroma (no content stored)
+
+        Plaintext only exists in RAM during this process — never touches disk.
+        """
+        rows = _enc_store.get_all_rows()
+        if not rows:
+            _log.info("[SecureRAGProvider] enc_store empty — nothing to rebuild")
+            return
+
+        _log.info("[SecureRAGProvider] Rebuilding ephemeral index from %d encrypted chunks...", len(rows))
+        rebuilt = 0
+        skipped = 0
+
+        for row in rows:
+            cid      = row["chunk_id"]
+            filename = row["filename"]
+            doc_id   = row["doc_id"]
+
+            try:
+                plaintext = _enc_store.retrieve(cid, self._secret_key, self._hmac_salt)
+            except (ValueError, InvalidTag) as exc:
+                _log.critical("[SecureRAGProvider] SKIP corrupt chunk %s: %s", cid[:16], exc)
+                skipped += 1
+                continue
+
+            if plaintext is None:
+                skipped += 1
+                continue
+
+            text = plaintext.decode("utf-8", errors="ignore")
+
+            try:
+                self._add_to_chroma(cid, text, filename, doc_id)
+                rebuilt += 1
+            except Exception as exc:
+                _log.error("[SecureRAGProvider] Failed to embed chunk %s: %s", cid[:16], exc)
+                skipped += 1
+
+        _log.info(
+            "[SecureRAGProvider] Ephemeral index ready — %d vectors rebuilt, %d skipped",
+            rebuilt, skipped
+        )
 
     def _add_to_chroma(
         self,
@@ -101,12 +183,10 @@ class SecureRAGProvider(BaseRAGProvider):
         """
         embedding_vector = self._embeddings.embed_query(text)
 
-        # Use the underlying chromadb collection to supply pre-computed embeddings.
-        # This is the only way to separate "what gets embedded" from "what gets stored".
         self._vectorstore._collection.add(
             ids=[chunk_id],
             embeddings=[embedding_vector],
-            documents=[chunk_id],          # ← chunk_id stored, NOT content
+            documents=[chunk_id],          # chunk_id stored, NOT content
             metadatas=[{
                 "chunk_id": chunk_id,
                 "filename": filename,
@@ -140,7 +220,7 @@ class SecureRAGProvider(BaseRAGProvider):
             cid      = make_chunk_id(filename, doc.metadata.get("chunk_index", i))
             text     = doc.page_content
 
-            # 1. Embed + add to Chroma (no content stored)
+            # 1. Embed + add to in-memory Chroma (no content stored)
             try:
                 self._add_to_chroma(cid, text, filename, doc_id)
             except Exception as exc:
@@ -160,7 +240,6 @@ class SecureRAGProvider(BaseRAGProvider):
                     hmac_salt   = self._hmac_salt,
                 )
             except Exception as exc:
-                # Chroma succeeded but enc_store failed — remove from Chroma to avoid desync
                 _log.error("[SecureRAGProvider] enc_store failed for %s chunk %d, rolling back Chroma: %s",
                            filename, i, exc)
                 try:
@@ -183,14 +262,11 @@ class SecureRAGProvider(BaseRAGProvider):
         if self._vectorstore is None:
             return []
 
-        # Skip embedding entirely if the store is empty — avoids model call latency
         if self._vectorstore._collection.count() == 0:
             return []
 
-        # Embed query and search Chroma
         raw = self._vectorstore.similarity_search_with_score(query, k=TOP_K)
 
-        # Filter by distance threshold, convert to similarity score
         results = []
         for doc, distance in raw:
             if distance > DISTANCE_THRESHOLD:
@@ -203,7 +279,6 @@ class SecureRAGProvider(BaseRAGProvider):
         results.sort(key=lambda x: x[1], reverse=True)
         results = results[:MAX_RESULTS]
 
-        # Decrypt each chunk
         retrieval_results = []
         for chroma_doc, score in results:
             cid      = chroma_doc.metadata.get("chunk_id", chroma_doc.page_content)
@@ -213,7 +288,6 @@ class SecureRAGProvider(BaseRAGProvider):
             try:
                 plaintext = _enc_store.retrieve(cid, self._secret_key, self._hmac_salt)
             except ValueError as exc:
-                # HMAC failure — tamper detected, skip this chunk and log
                 _log.critical("[SecureRAGProvider] TAMPER DETECTED — skipping chunk: %s", exc)
                 continue
             except InvalidTag:
@@ -271,22 +345,18 @@ class SecureRAGProvider(BaseRAGProvider):
     def delete_documents(self, filenames: list[str]) -> None:
         """
         Remove all chunks for the given filenames from both Chroma and enc_store.
-        Called during document deletion to keep both stores in sync.
         """
         for filename in filenames:
-            # Get all chunk_ids for this file from enc_store
             chunk_ids = _enc_store.get_chunk_ids(filename)
 
-            # Remove from Chroma
             if chunk_ids:
                 try:
                     self._vectorstore._collection.delete(ids=chunk_ids)
-                    _log.info("[SecureRAGProvider] removed %d Chroma vectors for %s",
+                    _log.info("[SecureRAGProvider] removed %d in-memory vectors for %s",
                               len(chunk_ids), filename)
                 except Exception as exc:
                     _log.error("[SecureRAGProvider] Chroma delete failed for %s: %s", filename, exc)
 
-            # Remove from enc_store
             deleted = _enc_store.delete_by_filename(filename)
             _log.info("[SecureRAGProvider] deleted %d enc_store chunks for %s", deleted, filename)
 
@@ -299,12 +369,14 @@ class SecureRAGProvider(BaseRAGProvider):
             store_info   = _enc_store.health_check()
             chroma_count = self._vectorstore._collection.count() if self._vectorstore else 0
             return {
-                "provider":   "secure_groq",
-                "llm":        f"groq/{GROQ_LLM_MODEL}",
-                "embeddings": f"ollama/{EMBEDDING_MODEL} (local)",
-                "vector_db":  f"chroma_encrypted ({chroma_count} vectors)",
-                "enc_store":  store_info,
-                "status":     "ok",
+                "provider":     "secure_groq",
+                "llm":          f"groq/{GROQ_LLM_MODEL}",
+                "embeddings":   f"local/{EMBEDDING_MODEL}",
+                "vector_db":    f"chroma_ephemeral ({chroma_count} vectors, in-memory only)",
+                "enc_store":    store_info,
+                "phase":        "Phase 3 — ephemeral index",
+                "disk_vectors": False,
+                "status":       "ok",
             }
         except Exception as exc:
             return {"provider": "secure_groq", "status": "error", "error": str(exc)}

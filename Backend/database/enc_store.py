@@ -203,6 +203,16 @@ def delete_by_filename(filename: str) -> int:
     return deleted
 
 
+def get_all_rows() -> list[dict]:
+    """
+    Return every row as a dict (for ephemeral index rebuild on startup).
+    Does NOT decrypt — caller is responsible for HMAC verify + decrypt.
+    """
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM encrypted_chunks").fetchall()
+    return [dict(row) for row in rows]
+
+
 def clear_all() -> None:
     """
     Wipe the entire encrypted store.

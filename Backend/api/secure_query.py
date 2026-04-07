@@ -155,9 +155,15 @@ def secure_query():
         results = provider.retrieve(processed_query)
     except Exception as exc:
         _log.error("[secure_query] retrieval failed: %s", exc)
+        error_msg = str(exc)
+        # Provide actionable guidance for common vector DB errors
+        if "no such table" in error_msg or "database" in error_msg.lower():
+            reason = "Encrypted vector database needs re-initialization. Please restart the backend."
+        else:
+            reason = f"Retrieval error: {error_msg}"
         return jsonify({
             "decision": "BLOCK",
-            "reason": f"Retrieval error: {exc}",
+            "reason": reason,
             "sources": [],
         }), 500
 

@@ -39,7 +39,7 @@ class ExternalRAGProvider(BaseRAGProvider):
         self._collection = cfg.get("qdrant_collection") or os.getenv("QDRANT_COLLECTION", "zerosec_docs")
         self._top_k = int(cfg.get("rag_top_k") or os.getenv("RAG_TOP_K", "8"))
         self._max_results = int(cfg.get("rag_max_results") or os.getenv("RAG_MAX_RESULTS", "4"))
-        self._similarity_threshold = float(cfg.get("qdrant_similarity_threshold") or os.getenv("QDRANT_SIMILARITY_THRESHOLD", "0.30"))
+        self._similarity_threshold = float(cfg.get("qdrant_similarity_threshold") or os.getenv("QDRANT_SIMILARITY_THRESHOLD", "0.45"))
         self._llm_model = cfg.get("groq_llm_model") or os.getenv("GROQ_LLM_MODEL", self.DEFAULT_LLM_MODEL)
         self._temperature = float(cfg.get("groq_temperature") or os.getenv("GROQ_TEMPERATURE", "0.3"))
         self._max_tokens = int(cfg.get("groq_max_tokens") or os.getenv("GROQ_MAX_TOKENS", "512"))

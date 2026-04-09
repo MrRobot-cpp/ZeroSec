@@ -17,7 +17,7 @@ export default function Settings() {
   return (
     <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
       <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="ml-64 flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="border-b border-gray-800 bg-gray-900/95 backdrop-blur-sm">
           <div className="px-6 py-6">

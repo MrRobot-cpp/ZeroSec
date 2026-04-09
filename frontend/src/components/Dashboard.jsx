@@ -16,7 +16,7 @@ export default function Dashboard() {
   return (
     <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
       <Sidebar />
-      <main className="flex-1 p-6 flex flex-col overflow-hidden">
+      <main className="ml-64 flex-1 p-6 flex flex-col overflow-hidden">
         <div className="mb-4 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold text-white">Dashboard</h1>

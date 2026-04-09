@@ -31,11 +31,16 @@ class ApiClient {
     // Make request
     const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     try {
       const response = await fetch(url, {
         ...options,
         headers,
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       // Handle 401 Unauthorized - token expired or invalid
       if (response.status === 401) {
@@ -45,6 +50,10 @@ class ApiClient {
 
       return response;
     } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out — the server took too long to respond');
+      }
       console.error('API request failed:', error);
       throw error;
     }

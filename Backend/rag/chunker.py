@@ -2,7 +2,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
 CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 100
+CHUNK_OVERLAP = 200
 
 
 def chunk_documents(documents: list[Document]) -> list[Document]:

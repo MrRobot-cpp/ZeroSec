@@ -8,7 +8,7 @@ export default function UsersPage() {
     <ProtectedRoute requiredPermission="admin">
       <div className="flex min-h-screen bg-gray-900 text-white">
         <Sidebar />
-        <main className="flex-1 p-6">
+        <main className="ml-64 flex-1 p-6">
           <UsersAccessControl />
         </main>
       </div>

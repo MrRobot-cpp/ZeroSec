@@ -1,16 +1,18 @@
 import { useState, useCallback, useEffect } from "react";
-import { queryRag } from "@/services/ragService";
+import { queryRag, querySecureRag } from "@/services/ragService";
 
 /**
  * Custom hook for managing RAG chat functionality
- * Handles message state, API calls, error handling, and persistence
+ * @param {boolean} encrypted - If true, uses the encrypted pipeline (/api/secure-query)
  */
-export function useRagChat() {
+export function useRagChat({ encrypted = false } = {}) {
+  const storageKey = encrypted ? 'ragChatHistory_encrypted' : 'ragChatHistory';
+
   // Initialize messages from localStorage
   const [messages, setMessages] = useState(() => {
     if (typeof window === 'undefined') return [];
     try {
-      const saved = localStorage.getItem('ragChatHistory');
+      const saved = localStorage.getItem(storageKey);
       return saved ? JSON.parse(saved) : [];
     } catch (error) {
       console.error('Error loading chat history from localStorage:', error);
@@ -22,11 +24,11 @@ export function useRagChat() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem('ragChatHistory', JSON.stringify(messages));
+      localStorage.setItem(storageKey, JSON.stringify(messages));
     } catch (error) {
       console.error('Error saving chat history to localStorage:', error);
     }
-  }, [messages]);
+  }, [messages, storageKey]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -49,9 +51,7 @@ export function useRagChat() {
     setError(null);
 
     try {
-      // Call the RAG API
-      // TODO: This connects to your backend - make sure the endpoint is correct
-      const response = await queryRag(question);
+      const response = await (encrypted ? querySecureRag(question) : queryRag(question));
 
       // Add assistant message to chat
       const assistantMessage = {
@@ -71,7 +71,7 @@ export function useRagChat() {
       // Add error message to chat
       const errorMessage = {
         role: "assistant",
-        content: `I encountered an error: ${err.message}. Please check your backend connection.`,
+        content: `I encountered an error: ${err.message}`,
         timestamp: new Date().toISOString(),
         isError: true,
       };
@@ -89,9 +89,9 @@ export function useRagChat() {
     setMessages([]);
     setError(null);
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('ragChatHistory');
+      localStorage.removeItem(storageKey);
     }
-  }, []);
+  }, [storageKey]);
 
   /**
    * Retry the last failed query

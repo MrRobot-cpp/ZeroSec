@@ -466,16 +466,17 @@ def inspect_llm_output(text: str) -> tuple:
 
     This catches cases where the LLM was successfully jailbroken and its
     output contains jailbreak indicators.
+
+    NOTE: Input attack patterns (_check_injection_patterns) are intentionally
+    NOT applied here — LLM responses on security topics (DFIR, pentesting,
+    forensics) legitimately contain phrases like "no restrictions", "without
+    constraints", or shell command examples that would cause false positives.
+    Only output-specific jailbreak signatures are checked.
     """
     if not text:
         return False, ""
 
     normalized = _normalize_text(text)
-
-    # Check standard injection patterns against output
-    detected, attack_type, _ = _check_injection_patterns(normalized)
-    if detected:
-        return True, f"output_contains_{attack_type}"
 
     # Check output-specific jailbreak signatures
     output_jailbreak_patterns = [

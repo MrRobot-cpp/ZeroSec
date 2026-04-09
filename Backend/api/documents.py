@@ -1,3 +1,4 @@
+import io
 import json
 import re
 from pathlib import Path
@@ -15,6 +16,7 @@ documents_bp = Blueprint('documents', __name__, url_prefix='/api')
 # Path configuration
 BASE_DIR = Path(__file__).resolve().parents[1]
 DOCS_PATH = BASE_DIR / "data" / "docs"
+HIGH_DOCS_PATH = BASE_DIR / "data" / "docs" / "high"
 CONVERTED_PATH = BASE_DIR / "data" / "docs_converted"
 METADATA_PATH = BASE_DIR / "data" / "docs_metadata.json"
 
@@ -54,15 +56,37 @@ def extract_text_from_file(file_path):
         # PDF files
         elif file_extension == '.pdf':
             try:
+                import pdfplumber
+                import re
+                pages = []
+                with pdfplumber.open(file_path) as pdf:
+                    for page in pdf.pages:
+                        page_text = page.extract_text(x_tolerance=2, y_tolerance=2) or ""
+                        pages.append(page_text)
+                raw = '\n'.join(pages)
+                # Fix hyphenated line-breaks: "re-\ntrieve" → "retrieve"
+                raw = re.sub(r'-\n(\s*)', '', raw)
+                # Collapse multiple blank lines
+                raw = re.sub(r'\n{3,}', '\n\n', raw)
+                # Join mid-sentence line breaks (line doesn't end with punctuation)
+                raw = re.sub(r'(?<![.!?:])\n(?=[a-z])', ' ', raw)
+                return raw.strip()
+            except ImportError:
+                pass
+            try:
                 import PyPDF2
-                text = []
+                import re
+                pages = []
                 with open(file_path, 'rb') as f:
                     pdf_reader = PyPDF2.PdfReader(f)
                     for page in pdf_reader.pages:
-                        text.append(page.extract_text())
-                return '\n'.join(text)
+                        pages.append(page.extract_text() or "")
+                raw = '\n'.join(pages)
+                raw = re.sub(r'-\n(\s*)', '', raw)
+                raw = re.sub(r'\n{3,}', '\n\n', raw)
+                raw = re.sub(r'(?<![.!?:])\n(?=[a-z])', ' ', raw)
+                return raw.strip()
             except ImportError:
-                # Fallback: read as binary and decode
                 with open(file_path, 'rb') as f:
                     return f.read().decode('utf-8', errors='ignore')
 
@@ -101,6 +125,40 @@ def extract_text_from_file(file_path):
         except:
             return f"[Unable to extract text from {file_path.name}]"
 
+def extract_text_from_bytes(raw_bytes: bytes, filename: str) -> str:
+    """Extract text from bytes in memory — never writes plaintext to disk."""
+    import io as _io
+    ext = Path(filename).suffix.lower()
+    try:
+        if ext == '.pdf':
+            try:
+                import pdfplumber
+                with pdfplumber.open(_io.BytesIO(raw_bytes)) as pdf:
+                    pages = [p.extract_text(x_tolerance=2, y_tolerance=2) or "" for p in pdf.pages]
+                raw = '\n'.join(pages)
+                raw = re.sub(r'-\n(\s*)', '', raw)
+                raw = re.sub(r'\n{3,}', '\n\n', raw)
+                raw = re.sub(r'(?<![.!?:])\n(?=[a-z])', ' ', raw)
+                return raw.strip()
+            except ImportError:
+                import PyPDF2
+                reader = PyPDF2.PdfReader(_io.BytesIO(raw_bytes))
+                pages = [p.extract_text() or "" for p in reader.pages]
+                raw = '\n'.join(pages)
+                raw = re.sub(r'-\n(\s*)', '', raw)
+                raw = re.sub(r'\n{3,}', '\n\n', raw)
+                raw = re.sub(r'(?<![.!?:])\n(?=[a-z])', ' ', raw)
+                return raw.strip()
+        elif ext == '.docx':
+            import docx
+            doc = docx.Document(_io.BytesIO(raw_bytes))
+            return '\n'.join(p.text for p in doc.paragraphs)
+        else:
+            return raw_bytes.decode('utf-8', errors='ignore')
+    except Exception:
+        return raw_bytes.decode('utf-8', errors='ignore')
+
+
 def convert_to_txt(original_path, converted_path):
     """Convert any file to .txt format for RAG system"""
     text_content = extract_text_from_file(original_path)
@@ -134,6 +192,54 @@ def scan_document(filename, content):
             issues.append(f"Injection: {keyword} detected")
 
     return issues
+
+def _ingest_high_sensitivity(raw_bytes: bytes, filename: str, doc_id: str, text_content: str) -> None:
+    """
+    Pre-storage encrypted ingest pipeline for HIGH sensitivity documents.
+
+    Plaintext NEVER touches disk:
+    1. Encrypt raw_bytes in RAM → write ONLY ciphertext to data/docs/high/
+    2. Ingest text chunks into SecureRAGProvider (Chroma chunk_ids + enc_store ciphertext)
+    """
+    from flask import current_app
+    from langchain_core.documents import Document as LCDocument
+    from backend.api.secure_query import _get_secure_provider
+    from backend.security.sag_crypto import encrypt, derive_key
+    import logging
+
+    _log = logging.getLogger("zerosec.documents")
+
+    try:
+        HIGH_DOCS_PATH.mkdir(parents=True, exist_ok=True)
+        high_file_path = HIGH_DOCS_PATH / filename
+
+        # 1. Encrypt raw bytes in RAM — write ONLY ciphertext to disk
+        secret_key = current_app.config.get('SECRET_KEY', '')
+        key_version = current_app.config.get('SAG_KEY_VERSION', 1)
+        key = derive_key(secret_key, doc_id, 'HIGH', key_version)
+        ciphertext, nonce, auth_tag = encrypt(raw_bytes, key)
+        high_file_path.write_bytes(nonce + auth_tag + ciphertext)
+
+        # 2. Ingest text chunks into encrypted pipeline
+        file_ext = Path(filename).suffix
+        provider = _get_secure_provider()
+        doc = LCDocument(
+            page_content=text_content,
+            metadata={
+                'source':    str(high_file_path),
+                'filename':  filename,
+                'file_type': file_ext,
+                'doc_id':    doc_id,
+            }
+        )
+        provider.ingest_documents([doc])
+
+        _log.info("[HIGH ingest] %s encrypted and ingested (plaintext never written to disk)", filename)
+
+    except Exception as exc:
+        _log.error("[HIGH ingest] failed for %s: %s", filename, exc)
+        raise
+
 
 @documents_bp.route('/documents', methods=['GET'])
 @jwt_required()
@@ -194,25 +300,20 @@ def upload_document():
 
         # Secure the filename
         filename = secure_filename(file.filename)
-        file_path = DOCS_PATH / filename
 
         # Check if document already exists in database
         existing_doc = DocumentRepository.get_document_by_filename(organization_id, filename)
         if existing_doc:
             return jsonify({'error': 'Document already exists'}), 409
 
-        # Save the file
-        file.save(str(file_path))
+        # Read file into memory — HIGH sensitivity files must NEVER touch disk as plaintext
+        raw_bytes = file.read()
 
-        # Extract text content for scanning
+        # Extract text content for scanning (from memory)
         try:
-            text_content = extract_text_from_file(file_path)
+            text_content = extract_text_from_bytes(raw_bytes, filename)
         except Exception as e:
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    text_content = f.read()
-            except:
-                text_content = f"[Error processing file: {e}]"
+            text_content = raw_bytes.decode('utf-8', errors='ignore')
 
         # Scan document for issues
         issues = scan_document(filename, text_content)
@@ -224,14 +325,48 @@ def upload_document():
         else:
             sensitivity = 'High' if any('PII' in issue for issue in issues) else 'Medium' if issues else 'Low'
 
-        # Create document in database
-        document = DocumentRepository.create_document(
-            organization_id=organization_id,
-            filename=filename,
-            storage_ref=str(file_path),
-            sensitivity=sensitivity,
-            user_id=user_id
-        )
+        # Route based on sensitivity — HIGH never writes plaintext to disk
+        if sensitivity == 'High':
+            # Create DB record before ingest (needed for doc_id)
+            document = DocumentRepository.create_document(
+                organization_id=organization_id,
+                filename=filename,
+                storage_ref=str(HIGH_DOCS_PATH / filename),
+                sensitivity=sensitivity,
+                user_id=user_id
+            )
+            try:
+                _ingest_high_sensitivity(raw_bytes, filename, str(document.document_id), text_content)
+            except Exception as ingest_err:
+                # Rollback: remove orphan DB record and any partial files
+                try:
+                    DocumentRepository.delete_document(document.document_id)
+                except Exception:
+                    pass
+                try:
+                    high_file = HIGH_DOCS_PATH / filename
+                    if high_file.exists():
+                        high_file.unlink()
+                except Exception:
+                    pass
+                return jsonify({'error': f'High sensitivity ingest failed: {str(ingest_err)}'}), 500
+        else:
+            # Standard pipeline — save plaintext to disk, refresh Chroma vectorstore
+            file_path = DOCS_PATH / filename
+            with open(str(file_path), 'wb') as f:
+                f.write(raw_bytes)
+
+            document = DocumentRepository.create_document(
+                organization_id=organization_id,
+                filename=filename,
+                storage_ref=str(file_path),
+                sensitivity=sensitivity,
+                user_id=user_id
+            )
+            try:
+                refresh_retriever()
+            except Exception:
+                pass
 
         # Log audit event
         log_audit(
@@ -242,12 +377,6 @@ def upload_document():
             target_id=document.document_id,
             metadata={'filename': filename, 'sensitivity': sensitivity, 'issues_count': len(issues)}
         )
-
-        # Auto-refresh vectorstore
-        try:
-            refresh_retriever()
-        except Exception:
-            pass
 
         return jsonify({
             'message': 'File uploaded successfully',
@@ -337,11 +466,22 @@ def delete_document(document_id):
             return jsonify({'error': 'Document not found'}), 404
 
         filename = document.filename
-        file_path = DOCS_PATH / filename
 
-        # Delete the physical file if it exists
-        if file_path.exists():
-            file_path.unlink()
+        # Delete physical file — check both standard and high/ paths
+        for candidate in [DOCS_PATH / filename, HIGH_DOCS_PATH / filename]:
+            if candidate.exists():
+                candidate.unlink()
+
+        # If HIGH sensitivity, remove from encrypted pipeline
+        if document.sensitivity == 'High':
+            try:
+                from backend.api.secure_query import _get_secure_provider
+                _get_secure_provider().delete_documents([filename])
+            except Exception as exc:
+                import logging
+                logging.getLogger("zerosec.documents").warning(
+                    "[delete] encrypted pipeline cleanup failed for %s: %s", filename, exc
+                )
 
         # Delete from database (cascades to uploads, canary tokens, etc.)
         DocumentRepository.delete_document(document_id)

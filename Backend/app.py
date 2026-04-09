@@ -29,6 +29,7 @@ from backend.api.dashboard import dashboard_bp
 from backend.api.subscriptions import subscriptions_bp
 from backend.api.metrics import metrics_bp
 from backend.api.rag_config import rag_config_bp
+from backend.api.secure_query import secure_query_bp
 
 # Get environment
 env = os.getenv('FLASK_ENV', 'development')
@@ -57,6 +58,7 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(subscriptions_bp)
 app.register_blueprint(metrics_bp)
 app.register_blueprint(rag_config_bp)
+app.register_blueprint(secure_query_bp)
 
 @app.route("/query", methods=["POST"])
 def query_route():
@@ -273,12 +275,21 @@ def legacy_upload_document():
         except Exception as e:
             print(f"Failed to log audit: {e}")
 
-        # Auto-refresh RAG retriever
-        try:
-            from backend.services.rag_service import refresh_retriever
-            refresh_retriever()
-        except Exception:
-            pass
+        # Route based on sensitivity
+        if sensitivity == 'High':
+            try:
+                from backend.api.documents import _ingest_high_sensitivity, extract_text_from_file
+                text_content = extract_text_from_file(file_path)
+                _ingest_high_sensitivity(file_path, filename, str(document.document_id), text_content)
+            except Exception as e:
+                print(f"[HIGH ingest] failed in legacy endpoint: {e}")
+        else:
+            # Standard pipeline — refresh Chroma vectorstore
+            try:
+                from backend.services.rag_service import refresh_retriever
+                refresh_retriever()
+            except Exception:
+                pass
 
         return jsonify({
             'message': 'File uploaded successfully',

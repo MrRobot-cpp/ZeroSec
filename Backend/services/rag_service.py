@@ -29,7 +29,7 @@ def _log_security_event(org_id, user_id, action, reason, query, score):
         _log.debug("[rag_service] DB security log skipped: %s", exc)
 
 # Debug mode - set to True to see prompts being sent to LLM
-DEBUG_RAG = True
+DEBUG_RAG = False
 
 # Conversational patterns that should skip RAG
 GREETING_PATTERNS = [

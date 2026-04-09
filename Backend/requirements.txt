@@ -48,3 +48,7 @@ langchain-qdrant>=0.1.0
 # Embeddings: sentence-transformers (local, no API key needed)
 langchain-huggingface>=0.0.6
 sentence-transformers>=2.7.0
+
+# Vector DB: ChromaDB (local, used by local/hybrid/secure providers)
+chromadb>=0.5.0
+langchain-chroma>=0.1.0

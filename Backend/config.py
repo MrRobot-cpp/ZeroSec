@@ -73,6 +73,12 @@ class Config:
     QDRANT_COLLECTION = os.getenv('QDRANT_COLLECTION', 'zerosec_docs')
     QDRANT_SIMILARITY_THRESHOLD = float(os.getenv('QDRANT_SIMILARITY_THRESHOLD', '0.30'))
 
+    # -------------------------
+    # Encrypted RAG (SAG)
+    # -------------------------
+    SAG_HMAC_SALT  = os.getenv('SAG_HMAC_SALT', '')
+    SAG_KEY_VERSION = int(os.getenv('SAG_KEY_VERSION', '1'))
+
     # Shared retrieval tuning (applies to both providers)
     RAG_TOP_K = int(os.getenv('RAG_TOP_K', '8'))
     RAG_MAX_RESULTS = int(os.getenv('RAG_MAX_RESULTS', '4'))

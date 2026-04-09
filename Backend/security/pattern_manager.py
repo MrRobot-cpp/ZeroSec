@@ -130,6 +130,14 @@ def _get_default_patterns() -> Dict:
             {'pattern': r'(?:unmask|unredact|uncensor)\b', 'flags': ['IGNORECASE']},
             {'pattern': r'show\s+(?:raw|original|unmasked|unredacted|full)\s+(?:data|text|value|number|output)', 'flags': ['IGNORECASE']},
 
+            # --- Context / chunk extraction attacks ---
+            {'pattern': r'(?:show|print|display|give|reveal|output|list|dump)\s+(?:me\s+)?(?:the\s+)?(?:exact\s+)?(?:retrieved|encrypted|decrypted|raw|original|source)\s+(?:chunks?|context|documents?|text|content|data)', 'flags': ['IGNORECASE']},
+            {'pattern': r'(?:what|which)\s+(?:chunks?|context|documents?|text)\s+(?:did\s+you|were|have\s+been)\s+(?:retrieve|given|provided|fetched|returned|used)', 'flags': ['IGNORECASE']},
+            {'pattern': r'(?:print|repeat|output|copy|paste|reproduce)\s+(?:the\s+)?(?:context|chunks?|documents?|source\s+text|retrieved\s+text)', 'flags': ['IGNORECASE']},
+            {'pattern': r'(?:show|tell)\s+me\s+(?:exactly\s+)?what\s+(?:documents?|chunks?|context|text)\s+(?:you\s+(?:have|got|retrieved|were\s+given))', 'flags': ['IGNORECASE']},
+            {'pattern': r'what\s+(?:documents?|chunks?|context|text|data)\s+(?:were|was|have\s+been)\s+(?:you\s+)?(?:given|provided|fed|passed|sent)', 'flags': ['IGNORECASE']},
+            {'pattern': r'(?:verbatim|word\s+for\s+word|exactly\s+as)\s+(?:it\s+(?:appears?|is)|written)', 'flags': ['IGNORECASE']},
+
             # --- Token injection markers ---
             {'pattern': r'\[\[(?:SYSTEM|ADMIN|IGNORE|OVERRIDE)\]\]', 'flags': ['IGNORECASE']},
             {'pattern': r'<\|(?:im_start|im_end|system|endoftext)\|>', 'flags': ['IGNORECASE']},

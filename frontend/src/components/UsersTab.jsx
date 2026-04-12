@@ -1,6 +1,17 @@
-import { useState } from "react";
-import PropTypes from "prop-types";
+import { useState, useEffect } from "react";
 import useUsers from "@/hooks/useUsers";
+import { getClearanceLevels, getDepartments } from "@/services/attributeService";
+import { getRoles } from "@/services/roleService";
+
+const EMPTY_FORM = {
+  username: "",
+  email: "",
+  password: "",
+  role: "",
+  department: "",
+  clearanceLevel: "",
+  status: "Active",
+};
 
 export default function UsersTab() {
   const { users, loading, error, createUser, updateUser, deleteUser } = useUsers();
@@ -8,15 +19,18 @@ export default function UsersTab() {
   const [editingUser, setEditingUser] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
-  const [formData, setFormData] = useState({
-    username: "",
-    email: "",
-    password: "",
-    role: "",
-    department: "",
-    clearanceLevel: "",
-    status: "Active",
-  });
+  const [formData, setFormData] = useState(EMPTY_FORM);
+
+  // Dynamic options fetched from the API
+  const [roles, setRoles] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [clearanceLevels, setClearanceLevels] = useState([]);
+
+  useEffect(() => {
+    getRoles().then(r => setRoles(r)).catch(() => setRoles([]));
+    getDepartments().then(d => setDepartments(d)).catch(() => setDepartments([]));
+    getClearanceLevels().then(c => setClearanceLevels(c)).catch(() => setClearanceLevels([]));
+  }, []);
 
   const handleOpenModal = (user = null) => {
     if (user) {
@@ -25,22 +39,14 @@ export default function UsersTab() {
         username: user.username,
         email: user.email,
         password: "",
-        role: user.role,
-        department: user.department,
-        clearanceLevel: user.clearanceLevel,
+        role: user.role || "",
+        department: user.department || "",
+        clearanceLevel: user.clearanceLevel || "",
         status: user.status,
       });
     } else {
       setEditingUser(null);
-      setFormData({
-        username: "",
-        email: "",
-        password: "",
-        role: "",
-        department: "",
-        clearanceLevel: "",
-        status: "Active",
-      });
+      setFormData(EMPTY_FORM);
     }
     setShowModal(true);
   };
@@ -89,12 +95,16 @@ export default function UsersTab() {
       inactive: "bg-gray-700 text-gray-300",
       suspended: "bg-red-900/50 text-red-300",
     };
+    const key = status?.toLowerCase();
     return (
-      <span className={`px-2 py-1 rounded text-xs font-medium ${statusStyles[status] || statusStyles.inactive}`}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
+      <span className={`px-2 py-1 rounded text-xs font-medium ${statusStyles[key] || statusStyles.inactive}`}>
+        {status ? status.charAt(0).toUpperCase() + status.slice(1) : "—"}
       </span>
     );
   };
+
+  // Clearance levels sorted ascending by level number
+  const sortedClearanceLevels = [...clearanceLevels].sort((a, b) => a.level - b.level);
 
   if (loading) {
     return (
@@ -127,8 +137,7 @@ export default function UsersTab() {
           onClick={() => handleOpenModal()}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors font-medium flex items-center gap-2"
         >
-          <span>+</span>
-          Add User
+          {"+ Add User"}
         </button>
       </div>
 
@@ -172,12 +181,17 @@ export default function UsersTab() {
                   >
                     <td className="py-4 px-6 text-gray-100 font-medium">{user.username}</td>
                     <td className="py-4 px-6 text-gray-300">{user.email}</td>
-                    <td className="py-4 px-6 text-gray-400 text-sm">{user.role || "N/A"}</td>
-                    <td className="py-4 px-6 text-gray-400 text-sm">{user.department || "N/A"}</td>
-                    <td className="py-4 px-6 text-gray-400 text-sm">{user.clearanceLevel || "N/A"}</td>
+                    <td className="py-4 px-6 text-gray-400 text-sm">{user.role || "—"}</td>
+                    <td className="py-4 px-6 text-gray-400 text-sm">{user.department || "—"}</td>
+                    <td className="py-4 px-6 text-sm">
+                      {user.clearanceLevel
+                        ? <span className="px-2 py-1 bg-blue-900/40 text-blue-300 border border-blue-700/50 rounded text-xs font-medium">{user.clearanceLevel}</span>
+                        : <span className="text-gray-500">—</span>
+                      }
+                    </td>
                     <td className="py-4 px-6">{getStatusBadge(user.status)}</td>
                     <td className="py-4 px-6 text-gray-400 text-sm">
-                      {user.created_at ? new Date(user.created_at).toLocaleDateString() : "N/A"}
+                      {user.created_at ? new Date(user.created_at).toLocaleDateString() : "—"}
                     </td>
                     <td className="py-4 px-6">
                       <div className="flex gap-2">
@@ -213,10 +227,9 @@ export default function UsersTab() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Username *
-                  </label>
+                  <label htmlFor="user-username" className="block text-sm font-medium text-gray-300 mb-2">Username *</label>
                   <input
+                    id="user-username"
                     type="text"
                     required
                     value={formData.username}
@@ -226,10 +239,9 @@ export default function UsersTab() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Email *
-                  </label>
+                  <label htmlFor="user-email" className="block text-sm font-medium text-gray-300 mb-2">Email *</label>
                   <input
+                    id="user-email"
                     type="email"
                     required
                     value={formData.email}
@@ -242,12 +254,11 @@ export default function UsersTab() {
 
               {!editingUser && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Password *
-                  </label>
+                  <label htmlFor="user-password" className="block text-sm font-medium text-gray-300 mb-2">Password *</label>
                   <input
+                    id="user-password"
                     type="password"
-                    required={!editingUser}
+                    required
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -258,10 +269,11 @@ export default function UsersTab() {
 
               {editingUser && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    New Password (leave blank to keep current)
+                  <label htmlFor="user-password" className="block text-sm font-medium text-gray-300 mb-2">
+                    New Password <span className="text-gray-500">(leave blank to keep current)</span>
                   </label>
                   <input
+                    id="user-password"
                     type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -273,64 +285,56 @@ export default function UsersTab() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Role
-                  </label>
+                  <label htmlFor="user-role" className="block text-sm font-medium text-gray-300 mb-2">Role</label>
                   <select
+                    id="user-role"
                     value={formData.role}
                     onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                     className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select role</option>
-                    <option value="Super Admin">Super Admin</option>
-                    <option value="Admin">Admin</option>
-                    <option value="Security Analyst">Security Analyst</option>
-                    <option value="Auditor">Auditor</option>
-                    <option value="User">User</option>
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.name}>{r.name}</option>
+                    ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Department
-                  </label>
+                  <label htmlFor="user-department" className="block text-sm font-medium text-gray-300 mb-2">Department</label>
                   <select
+                    id="user-department"
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                     className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select department</option>
-                    <option value="General">General</option>
-                    <option value="Security">Security</option>
-                    <option value="Engineering">Engineering</option>
-                    <option value="Operations">Operations</option>
-                    <option value="Compliance">Compliance</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.name}>{d.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Clearance Level
-                  </label>
+                  <label htmlFor="user-clearance" className="block text-sm font-medium text-gray-300 mb-2">Clearance Level</label>
                   <select
+                    id="user-clearance"
                     value={formData.clearanceLevel}
                     onChange={(e) => setFormData({ ...formData, clearanceLevel: e.target.value })}
                     className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Select clearance level</option>
-                    <option value="Public">Public</option>
-                    <option value="Internal">Internal</option>
-                    <option value="Confidential">Confidential</option>
-                    <option value="Secret">Secret</option>
-                    <option value="Top Secret">Top Secret</option>
+                    <option value="">No restriction</option>
+                    {sortedClearanceLevels.map((cl) => (
+                      <option key={cl.id} value={cl.name}>{cl.name}</option>
+                    ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Status *
-                  </label>
+                  <label htmlFor="user-status" className="block text-sm font-medium text-gray-300 mb-2">Status *</label>
                   <select
+                    id="user-status"
                     required
                     value={formData.status}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
@@ -369,7 +373,9 @@ export default function UsersTab() {
           <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-xl font-bold text-white mb-4">Confirm Delete</h3>
             <p className="text-gray-300 mb-6">
-              Are you sure you want to delete user <span className="font-semibold text-white">{userToDelete?.username}</span>? This action cannot be undone.
+              Are you sure you want to delete user{" "}
+              <span className="font-semibold text-white">{userToDelete?.username}</span>?
+              {" "}This action cannot be undone.
             </p>
             <div className="flex gap-3 justify-end">
               <button
@@ -391,3 +397,4 @@ export default function UsersTab() {
     </div>
   );
 }
+

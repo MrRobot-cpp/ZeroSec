@@ -13,7 +13,7 @@ export default function CanaryPage() {
   };
 
   return (
-    <ProtectedRoute requiredPermission="create">
+    <ProtectedRoute requiredPermission="canary_manage">
       <div className="flex min-h-screen bg-gray-900 text-white">
         <Sidebar />
         <main className="ml-64 flex-1 p-6 flex flex-col">

@@ -7,19 +7,23 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { hasPermission, user, logout } = useAuth();
 
-  // Navigation items with required permissions
-  // The backend uses generic permissions: read, create, update, delete, admin
-  // - Admin role has: create, read, update, delete
-  // - User role has: read, create
-  // - Viewer role has: read
+  // Navigation items with required permissions (using specific permissions per page)
+  // - Dashboard:       admin only
+  // - RAG Assistant:   rag_query  (User, Auditor, Admin)
+  // - Documents:       document_view  (Auditor, Admin)
+  // - Canary Watermark: canary_manage  (Auditor, Admin)
+  // - Policies:        policy_manage  (Admin)
+  // - Users & Access:  user_manage  (Admin)
+  // - Logs & Alerts:   audit_view  (Auditor, Admin)
+  // - Settings:        admin  (Admin)
   const navItems = [
-    { label: "Dashboard", path: "/dashboard", permission: null }, // All authenticated users
-    { label: "RAG Assistant", path: "/rag", permission: "read" }, // Anyone with read access
-    { label: "Documents", path: "/documents", permission: "read" }, // Anyone with read access
-    { label: "Canary Watermark", path: "/canary", permission: "create" }, // Requires create permission
-    { label: "Policies", path: "/policies", permission: "update" }, // Requires update permission (managers+)
-    { label: "Users & Access", path: "/users", permission: "admin" }, // Admin only
-    { label: "Logs & Alerts", path: "/logs-alerts", permission: "read" }, // Anyone with read access
+    { label: "Dashboard", path: "/dashboard", permission: "admin" },
+    { label: "RAG Assistant", path: "/rag", permission: "rag_query" },
+    { label: "Documents", path: "/documents", permission: "document_view" },
+    { label: "Canary Watermark", path: "/canary", permission: "canary_manage" },
+    { label: "Policies", path: "/policies", permission: "policy_manage" },
+    { label: "Users & Access", path: "/users", permission: "user_manage" },
+    { label: "Logs & Alerts", path: "/logs-alerts", permission: "audit_view" },
   ];
 
   const bottomNavItems = [

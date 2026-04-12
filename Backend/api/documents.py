@@ -507,6 +507,70 @@ def delete_document(document_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@documents_bp.route('/documents/<int:document_id>/vault-inspect', methods=['GET'])
+@jwt_required()
+@require_permission('read')
+def vault_inspect(document_id):
+    """
+    Return raw encrypted metadata for a HIGH sensitivity document.
+    Never returns plaintext — only ciphertext hex, nonce, auth_tag, algorithm info.
+    Used by the Vault Inspector UI to prove data is encrypted at rest.
+    """
+    try:
+        organization_id = get_current_organization_id()
+        user_id = get_jwt_identity()
+
+        document = DocumentRepository.get_document_by_id(document_id)
+        if not document or document.organization_id != organization_id:
+            return jsonify({'error': 'Document not found'}), 404
+
+        if document.sensitivity != 'High':
+            return jsonify({'error': 'Vault Inspector is only available for HIGH sensitivity documents'}), 400
+
+        from backend.database import enc_store as _enc_store
+        rows = _enc_store.get_all_rows()
+        doc_rows = [r for r in rows if r['filename'] == document.filename]
+
+        if not doc_rows:
+            return jsonify({'error': 'No encrypted chunks found — document may not be ingested yet'}), 404
+
+        chunks = []
+        for r in doc_rows:
+            ct = bytes(r['ciphertext'])
+            nonce = bytes(r['nonce'])
+            auth_tag = bytes(r['auth_tag'])
+            chunks.append({
+                'chunk_id':     r['chunk_id'][:16] + '...',
+                'nonce_hex':    nonce.hex(),
+                'auth_tag_hex': auth_tag.hex(),
+                'ciphertext_hex': ct[:32].hex() + '...',
+                'ciphertext_bytes': len(ct),
+                'key_version':  r['key_version'],
+                'created_at':   r['created_at'],
+            })
+
+        log_audit(
+            organization_id=organization_id,
+            user_id=user_id,
+            action='vault_inspect',
+            target_type='Document',
+            target_id=document_id,
+            metadata={'filename': document.filename, 'chunks_inspected': len(chunks)},
+        )
+
+        return jsonify({
+            'filename':    document.filename,
+            'sensitivity': document.sensitivity,
+            'algorithm':   'AES-256-GCM',
+            'kdf':         'HKDF-SHA256',
+            'chunks':      chunks,
+            'total_chunks': len(chunks),
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @documents_bp.route('/documents/refresh', methods=['POST'])
 def refresh_documents():
     """Force refresh the RAG retriever to pick up new documents"""

@@ -33,4 +33,13 @@ export async function deleteDocument(documentId) {
   return await response.json();
 }
 
-export default { getDocuments, uploadDocument, deleteDocument };
+export async function fetchVaultData(documentId) {
+  const response = await apiClient.get(`/api/documents/${documentId}/vault-inspect`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `Vault inspect failed (${response.status})`);
+  }
+  return await response.json();
+}
+
+export default { getDocuments, uploadDocument, deleteDocument, fetchVaultData };

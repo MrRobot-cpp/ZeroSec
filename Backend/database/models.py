@@ -2,7 +2,11 @@
 Database Models - Based on ERD
 All tables and relationships for ZeroSec platform
 """
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 from backend.database.db import db
 
 class Organization(db.Model):
@@ -288,3 +292,54 @@ class AnomalyScore(db.Model):
 
     def __repr__(self):
         return f'<AnomalyScore audit_id={self.audit_id} score={self.anomaly_score}>'
+
+
+# ---------------------------------------------------------------------------
+# RED-TEAM / AUTO TESTING MODELS
+# Completely isolated from AuditLog — no synthetic data ever mixes with prod
+# ---------------------------------------------------------------------------
+
+class TestRun(db.Model):
+    """Summary of a single red-team test run."""
+    __tablename__ = 'test_runs'
+
+    test_run_id    = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    run_uuid       = db.Column(db.String(36), nullable=False, unique=True)   # UUID for idempotency
+    attack_category = db.Column(db.String(50), nullable=False)               # 'pii', 'injection', 'all'
+    generator_version = db.Column(db.String(20), nullable=False, default='v1.0')
+    total_attacks  = db.Column(db.Integer, default=0)
+    passed         = db.Column(db.Integer, default=0)                        # firewall correctly blocked
+    failed         = db.Column(db.Integer, default=0)                        # firewall MISSED the attack
+    accuracy       = db.Column(db.Float,   default=0.0)                      # passed / total
+    triggered_by   = db.Column(db.String(50), default='scheduler')           # 'scheduler' | 'manual'
+    started_at     = db.Column(db.DateTime, default=_utcnow, nullable=False)
+    ended_at       = db.Column(db.DateTime, nullable=True)
+    notes          = db.Column(db.Text, nullable=True)
+
+    # Relationship to individual attack results
+    logs = db.relationship('TestRunLog', backref='test_run', lazy=True,
+                           cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<TestRun {self.run_uuid} acc={self.accuracy:.0%}>'
+
+
+class TestRunLog(db.Model):
+    """Individual attack result within a test run."""
+    __tablename__ = 'test_run_logs'
+
+    log_id            = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    test_run_id       = db.Column(db.Integer, db.ForeignKey('test_runs.test_run_id'), nullable=False)
+    attack_type       = db.Column(db.String(50),  nullable=False)   # 'pii_obfuscation', 'prompt_injection'
+    difficulty        = db.Column(db.Integer,      default=1)        # 1=obvious, 2=obfuscated, 3=adversarial, 4=semantic
+    attack_vector     = db.Column(db.Text,         nullable=False)   # The actual text sent to the firewall
+    firewall_decision = db.Column(db.String(20),   nullable=False)   # 'BLOCK', 'FLAG', 'ALLOW'
+    expected_decision = db.Column(db.String(20),   nullable=False)   # Always 'BLOCK' for red-team attacks
+    passed            = db.Column(db.Boolean,      nullable=False)   # True = firewall blocked correctly
+    score             = db.Column(db.Float,        nullable=True)    # ML confidence score returned
+    layer_breakdown   = db.Column(db.JSON,         nullable=True)    # {regex: bool, ml: float, llm: str}
+    timestamp         = db.Column(db.DateTime, default=_utcnow, nullable=False)
+
+    def __repr__(self):
+        status = 'PASS' if self.passed else 'FAIL'
+        return f'<TestRunLog [{status}] {self.attack_type} d={self.difficulty}>'

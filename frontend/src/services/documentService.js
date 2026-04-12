@@ -36,14 +36,4 @@ export async function deleteDocument(documentId) {
   return await response.json();
 }
 
-export async function getClearanceLevels() {
-  const response = await apiClient.get('/api/attributes/clearance-levels');
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to fetch clearance levels (${response.status})`);
-  }
-  const data = await response.json();
-  return data.clearanceLevels || [];
-}
-
-export default { getDocuments, uploadDocument, deleteDocument, getClearanceLevels };
+export default { getDocuments, uploadDocument, deleteDocument };

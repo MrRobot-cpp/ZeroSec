@@ -16,7 +16,7 @@ export default function CanaryPage() {
     <ProtectedRoute requiredPermission="canary_manage">
       <div className="flex min-h-screen bg-gray-900 text-white">
         <Sidebar />
-        <main className="ml-64 flex-1 p-6 flex flex-col">
+        <main className="ml-56 flex-1 p-6 flex flex-col">
           <div className="h-full flex flex-col bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
             <div className="bg-gray-800 border-b border-gray-700 p-6">
               <div className="flex items-center justify-between">

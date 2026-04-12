@@ -431,6 +431,11 @@ def inspect_text(text: str) -> dict:
     """
     Text inspection for general use.
     Returns decision (BLOCK/ALLOW), reason, and sanitized text.
+
+    PII detection is two-pass:
+      Pass 1: regex on preprocessed text (fast, catches L1-L3 obfuscation)
+      Pass 2: Groq LLM scan_pii (slow, catches L4 semantic PII that regex misses)
+    Pass 2 only runs if Pass 1 found nothing and text is under 800 chars.
     """
     stats["total_queries"] += 1
 
@@ -441,15 +446,40 @@ def inspect_text(text: str) -> dict:
         action = "BLOCK"
         stats["total_blocks"] += 1
         reason = "injection"
+        sanitized = redact_pii(text) if patterns else text
     elif _check_canary_tokens(text):
         action = "BLOCK"
         stats["total_blocks"] += 1
         reason = "canary_token_detected"
+        sanitized = text
     else:
-        action = "ALLOW"
-        reason = "clean" if not patterns else "pii_sanitized"
-
-    sanitized = redact_pii(text) if patterns else text
+        # Pass 1: regex found PII
+        if patterns:
+            sanitized = redact_pii(text)
+            action = "ALLOW"
+            reason = "pii_sanitized"
+        else:
+            # Pass 2: try Groq LLM for semantic PII the regex missed
+            # Only on short texts to keep latency acceptable
+            sanitized = text
+            if len(text) <= 800:
+                try:
+                    from backend.security import llm_judge
+                    llm_sanitized = llm_judge.scan_pii(text)
+                    if "<REDACTED>" in llm_sanitized:
+                        sanitized = llm_sanitized
+                        patterns = ["llm_pii_detected"]
+                        action = "ALLOW"
+                        reason = "pii_sanitized_llm"
+                    else:
+                        action = "ALLOW"
+                        reason = "clean"
+                except Exception:
+                    action = "ALLOW"
+                    reason = "clean"
+            else:
+                action = "ALLOW"
+                reason = "clean"
 
     return {
         "original": text,

@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import logging
 import time
-from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Optional
 
 from backend.security.red_team.attack_generator import Attack
@@ -101,6 +101,60 @@ def _call_groq(client, prompt: str, max_tokens: int = 1500) -> Optional[str]:
             return None
 
 
+SIMILARITY_THRESHOLD = 0.82   # discard if SequenceMatcher ratio >= this vs any static attack
+
+_static_pool_cache: list[str] | None = None
+
+
+def _get_static_pool() -> list[str]:
+    """Return lowercase texts of all static attacks (cached)."""
+    global _static_pool_cache
+    if _static_pool_cache is not None:
+        return _static_pool_cache
+    from backend.security.red_team.attack_generator import AttackGenerator
+    gen = AttackGenerator()
+    _static_pool_cache = [a.text.lower() for a in gen.generate_all()]
+    return _static_pool_cache
+
+
+def _is_duplicate(candidate: str, static_pool: list[str]) -> bool:
+    """Return True if candidate is too similar to any static attack."""
+    c = candidate.lower()
+    for static in static_pool:
+        ratio = SequenceMatcher(None, c, static, autojunk=False).ratio()
+        if ratio >= SIMILARITY_THRESHOLD:
+            return True
+    return False
+
+
+def _deduplicate(attacks: list[Attack]) -> list[Attack]:
+    """Remove LLM attacks that duplicate static attacks or each other."""
+    static_pool = _get_static_pool()
+    unique: list[Attack] = []
+    seen_texts: list[str] = []
+
+    for attack in attacks:
+        c = attack.text.lower()
+
+        # Skip if too close to static pool
+        if _is_duplicate(c, static_pool):
+            _log.debug("[llm_gen] Discarded duplicate: %.60s", attack.text)
+            continue
+
+        # Skip if too close to already-accepted LLM attacks this batch
+        if _is_duplicate(c, seen_texts):
+            _log.debug("[llm_gen] Discarded intra-batch duplicate: %.60s", attack.text)
+            continue
+
+        unique.append(attack)
+        seen_texts.append(c)
+
+    discarded = len(attacks) - len(unique)
+    if discarded:
+        _log.info("[llm_gen] Deduplication removed %d/%d attacks", discarded, len(attacks))
+    return unique
+
+
 def _parse_numbered_lines(text: str) -> list[str]:
     """Parse '1. ...' formatted lines from LLM output."""
     lines = []
@@ -134,16 +188,18 @@ def generate_llm_injection_attacks(count: int = 10) -> list[Attack]:
     lines = _parse_numbered_lines(raw)
     elapsed = time.monotonic() - t0
 
-    attacks = []
-    for line in lines[:count]:
-        attacks.append(Attack(
+    raw_attacks = [
+        Attack(
             text=line,
             attack_type="prompt_injection",
-            difficulty=5,  # LLM-generated = difficulty 5 (beyond static L4)
+            difficulty=5,
             seed="llm_generated",
-        ))
+        )
+        for line in lines[:count * 2]   # generate extra buffer to absorb deduplication loss
+    ]
 
-    _log.info("[llm_gen] Generated %d injection attacks in %.1fs", len(attacks), elapsed)
+    attacks = _deduplicate(raw_attacks)[:count]
+    _log.info("[llm_gen] Generated %d unique injection attacks in %.1fs", len(attacks), elapsed)
     return attacks
 
 
@@ -175,17 +231,23 @@ def generate_llm_pii_attacks(seeds: list[str] = None, count_per_seed: int = 5) -
             continue
 
         lines = _parse_numbered_lines(raw)
-        for line in lines[:count_per_seed]:
-            attacks.append(Attack(
+        seed_attacks = [
+            Attack(
                 text=line,
                 attack_type="pii_obfuscation",
                 difficulty=5,
                 seed=f"llm:{seed[:20]}",
-            ))
+            )
+            for line in lines[:count_per_seed * 2]  # extra buffer
+        ]
+        attacks.extend(seed_attacks)
 
     elapsed = time.monotonic() - t0
-    _log.info("[llm_gen] Generated %d PII attacks in %.1fs", len(attacks), elapsed)
-    return attacks[:MAX_LLM_ATTACKS]
+
+    # Deduplicate the whole batch at once
+    attacks = _deduplicate(attacks)[:MAX_LLM_ATTACKS]
+    _log.info("[llm_gen] Generated %d unique PII attacks in %.1fs", len(attacks), elapsed)
+    return attacks
 
 
 def generate_all_llm_attacks(

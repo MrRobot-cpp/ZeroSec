@@ -20,7 +20,7 @@ from backend.security.red_team.attack_generator import AttackGenerator, Attack
 
 _log = logging.getLogger("zerosec.redteam")
 
-MAX_ATTACKS_PER_RUN = 100
+MAX_ATTACKS_PER_RUN = 200
 
 
 def _utcnow() -> datetime:
@@ -77,6 +77,54 @@ def _run_single(attack: Attack) -> dict:
     }
 
 
+def _get_missed_attacks(category: str, limit: int = 40) -> list[Attack]:
+    """
+    Pull failed attack vectors from the most recent run of the same category.
+    These are replayed first so we can track whether gaps get fixed over time.
+    """
+    from backend.database.models import TestRun, TestRunLog
+
+    last_run = (
+        TestRun.query
+        .filter_by(attack_category=category)
+        .order_by(TestRun.started_at.desc())
+        .first()
+    )
+    if not last_run:
+        # Also try 'all' category if exact category has no prior run
+        last_run = (
+            TestRun.query
+            .order_by(TestRun.started_at.desc())
+            .first()
+        )
+    if not last_run:
+        return []
+
+    missed_logs = (
+        TestRunLog.query
+        .filter_by(test_run_id=last_run.test_run_id, passed=False)
+        .order_by(TestRunLog.difficulty.desc())   # hardest first
+        .limit(limit)
+        .all()
+    )
+
+    attacks = []
+    for log in missed_logs:
+        attacks.append(Attack(
+            text=log.attack_vector,
+            attack_type=log.attack_type,
+            difficulty=log.difficulty,
+            seed=f"replay:run#{last_run.test_run_id}",
+        ))
+
+    if attacks:
+        _log.info(
+            "[redteam] Replaying %d missed attacks from run #%d",
+            len(attacks), last_run.test_run_id,
+        )
+    return attacks
+
+
 def run_test(
     category: str = "all",
     triggered_by: str = "manual",
@@ -98,14 +146,32 @@ def run_test(
     from backend.database.db import db
     from backend.database.models import TestRun, TestRunLog
 
-    generator  = AttackGenerator()
-    attacks    = generator.generate_by_category(category, use_llm=use_llm)[:MAX_ATTACKS_PER_RUN]
+    generator = AttackGenerator()
+
+    # Build attack pool: missed replays first, then static, then LLM
+    # Missed attacks get priority so every run re-validates known gaps
+    missed_attacks  = _get_missed_attacks(category, limit=40)
+    missed_texts    = {a.text for a in missed_attacks}
+
+    static_attacks  = generator.generate_by_category(category, use_llm=False)
+    # Deduplicate static against replayed misses (same text already covered)
+    static_attacks  = [a for a in static_attacks if a.text not in missed_texts]
+
+    llm_attacks: list[Attack] = []
+    if use_llm:
+        llm_attacks = generator._generate_llm_attacks(category)
+
+    # Final pool: missed → static → LLM, then cap
+    attacks = (missed_attacks + static_attacks + llm_attacks)[:MAX_ATTACKS_PER_RUN]
+
     run_uuid   = str(uuid.uuid4())
     started_at = _utcnow()
 
     _log.info(
-        "[redteam] Starting run %s | category=%s | attacks=%d | by=%s",
-        run_uuid, category, len(attacks), triggered_by,
+        "[redteam] Starting run %s | category=%s | attacks=%d (replay=%d static=%d llm=%d) | by=%s",
+        run_uuid, category, len(attacks),
+        len(missed_attacks), len(static_attacks), len(llm_attacks),
+        triggered_by,
     )
 
     # Create the run record first so FK is valid
@@ -171,18 +237,20 @@ def run_test(
     layer_stats = _compute_layer_stats(attacks, run.test_run_id)
 
     return {
-        "run_id":       run.test_run_id,
-        "run_uuid":     run_uuid,
-        "category":     category,
-        "total":        len(attacks),
-        "passed":       passed_count,
-        "failed":       failed_count,
-        "accuracy":     round(accuracy, 4),
-        "accuracy_pct": f"{accuracy:.1%}",
-        "failures":     failures,
-        "layer_stats":  layer_stats,
-        "started_at":   started_at.isoformat(),
-        "ended_at":     run.ended_at.isoformat(),
+        "run_id":        run.test_run_id,
+        "run_uuid":      run_uuid,
+        "category":      category,
+        "total":         len(attacks),
+        "passed":        passed_count,
+        "failed":        failed_count,
+        "accuracy":      round(accuracy, 4),
+        "accuracy_pct":  f"{accuracy:.1%}",
+        "failures":      failures,
+        "layer_stats":   layer_stats,
+        "started_at":    started_at.isoformat(),
+        "ended_at":      run.ended_at.isoformat(),
+        "replay_count":  len(missed_attacks),
+        "llm_count":     len(llm_attacks),
     }
 
 

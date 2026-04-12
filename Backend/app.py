@@ -30,7 +30,6 @@ from backend.api.subscriptions import subscriptions_bp
 from backend.api.metrics import metrics_bp
 from backend.api.rag_config import rag_config_bp
 from backend.api.secure_query import secure_query_bp
-from backend.api.red_team import red_team_bp
 
 # Get environment
 env = os.getenv('FLASK_ENV', 'development')
@@ -47,6 +46,12 @@ CORS(app, expose_headers=['X-Canary-ID', 'X-Output-Path', 'X-Canary-Hash', 'X-Ca
 # Initialize database
 init_db(app)
 
+# Register anomaly detector as an observer on the audit log pipeline
+from backend.security.anomaly_detection import get_detector, register_app as _ad_register_app
+from backend.utils.audit import register_subscriber as _register_audit_subscriber
+_ad_register_app(app)
+_register_audit_subscriber(get_detector())
+
 # Register blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(documents_bp)
@@ -60,7 +65,6 @@ app.register_blueprint(subscriptions_bp)
 app.register_blueprint(metrics_bp)
 app.register_blueprint(rag_config_bp)
 app.register_blueprint(secure_query_bp)
-app.register_blueprint(red_team_bp)
 
 @app.route("/query", methods=["POST"])
 def query_route():
@@ -86,6 +90,14 @@ def rag_health():
         return jsonify(get_provider().health_check())
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+
+def _anomaly_reason(score: float) -> str:
+    if score >= 0.90:
+        return "anomaly: high-confidence threat signal"
+    if score >= 0.75:
+        return "anomaly: suspicious behavior detected"
+    return "anomaly: unusual activity pattern"
+
 
 @app.route("/logs")
 def logs():
@@ -157,6 +169,26 @@ def logs():
                 'metadata': meta,
                 'type': 'audit'
             })
+
+        # Enrich anomalous audit events with BLOCK decision + reason
+        from backend.database.models import AnomalyScore
+        audit_ids = [log['id'] for log in combined_logs if log.get('type') == 'audit']
+        if audit_ids:
+            anomaly_rows = AnomalyScore.query.filter(
+                AnomalyScore.audit_id.in_(audit_ids),
+                AnomalyScore.is_anomaly == True,
+            ).all()
+            score_map = {row.audit_id: row for row in anomaly_rows}
+            for log in combined_logs:
+                if log.get('type') == 'audit' and log['id'] in score_map:
+                    s = score_map[log['id']]
+                    log['decision']  = 'BLOCK'
+                    log['reason']    = _anomaly_reason(s.anomaly_score)
+                    log['score']     = round(s.anomaly_score, 3)
+                    log['stopped_by'] = 'Anomaly Detection (ML)'
+                    if isinstance(log.get('metadata'), dict):
+                        log['metadata']['anomaly_score'] = s.anomaly_score
+                        log['metadata']['anomaly_type']  = s.anomaly_type
 
         return jsonify(combined_logs)
     except Exception as e:

@@ -61,7 +61,7 @@ export default function ProtectedRoute({
                     <h1 className="text-2xl font-bold text-red-500 mb-4">Access Denied</h1>
                     <p className="text-gray-400">You don&apos;t have permission to access this page.</p>
                     <button
-                        onClick={() => router.push("/dashboard")}
+                        onClick={() => router.push("/rag")}
                         className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                     >
                         Go to Dashboard
@@ -79,7 +79,7 @@ export default function ProtectedRoute({
                     <h1 className="text-2xl font-bold text-red-500 mb-4">Access Denied</h1>
                     <p className="text-gray-400">You don&apos;t have the required role to access this page.</p>
                     <button
-                        onClick={() => router.push("/dashboard")}
+                        onClick={() => router.push("/rag")}
                         className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                     >
                         Go to Dashboard

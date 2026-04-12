@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import authService from "../services/authService";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Login() {
   const router = useRouter();
+  const { login } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -107,8 +108,8 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      // Call actual backend authentication
-      await authService.login(sanitizedUsername, sanitizedPassword);
+      // Call login via AuthContext so React state is updated immediately
+      await login(sanitizedUsername, sanitizedPassword);
 
       // Reset login attempts on success
       setLoginAttempts(0);

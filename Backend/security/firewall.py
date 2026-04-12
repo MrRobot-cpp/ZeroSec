@@ -102,12 +102,17 @@ def _has_benign_context(text: str) -> bool:
 
 
 def _find_secret_patterns(text: str) -> list:
-    """Find all PII pattern names present in text."""
+    """Find all PII pattern names present in text.
+    Runs preprocessing first so obfuscated PII (fullwidth, [at], spaced digits) is detected.
+    """
+    preprocessed = _preprocess_text(_normalize_text(text))
     found = []
     pii_patterns = _get_default_patterns().get('pii', {})
     for pattern_name, config in pii_patterns.items():
         rx = re.compile(config['pattern'], flags=_get_flags(config.get('flags', [])))
-        if rx.search(text):
+        # Check both raw and preprocessed text — raw catches plain PII,
+        # preprocessed catches obfuscated PII
+        if rx.search(text) or rx.search(preprocessed):
             found.append(pattern_name)
     return found
 
@@ -178,35 +183,92 @@ def _preprocess_text(text: str) -> str:
     text = re.sub(r'&#x([0-9a-fA-F]{1,4});', lambda m: chr(int(m.group(1), 16)), text)
     text = re.sub(r'&#(\d{1,5});', lambda m: chr(int(m.group(1))), text)
 
-    # 3. Unicode fullwidth digits/letters → ASCII (ＡＢＣ１２３ → ABC123)
-    _FULLWIDTH_TABLE = str.maketrans(
-        '０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ',
-        '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-    )
+    # 3. Unicode fullwidth digits/letters/symbols → ASCII (ＡＢＣ１２３＠．→ ABC123@.)
+    _FULLWIDTH_TABLE = str.maketrans({
+        # Digits 0-9
+        0xFF10: '0', 0xFF11: '1', 0xFF12: '2', 0xFF13: '3', 0xFF14: '4',
+        0xFF15: '5', 0xFF16: '6', 0xFF17: '7', 0xFF18: '8', 0xFF19: '9',
+        # Uppercase A-Z
+        0xFF21: 'A', 0xFF22: 'B', 0xFF23: 'C', 0xFF24: 'D', 0xFF25: 'E',
+        0xFF26: 'F', 0xFF27: 'G', 0xFF28: 'H', 0xFF29: 'I', 0xFF2A: 'J',
+        0xFF2B: 'K', 0xFF2C: 'L', 0xFF2D: 'M', 0xFF2E: 'N', 0xFF2F: 'O',
+        0xFF30: 'P', 0xFF31: 'Q', 0xFF32: 'R', 0xFF33: 'S', 0xFF34: 'T',
+        0xFF35: 'U', 0xFF36: 'V', 0xFF37: 'W', 0xFF38: 'X', 0xFF39: 'Y',
+        0xFF3A: 'Z',
+        # Lowercase a-z
+        0xFF41: 'a', 0xFF42: 'b', 0xFF43: 'c', 0xFF44: 'd', 0xFF45: 'e',
+        0xFF46: 'f', 0xFF47: 'g', 0xFF48: 'h', 0xFF49: 'i', 0xFF4A: 'j',
+        0xFF4B: 'k', 0xFF4C: 'l', 0xFF4D: 'm', 0xFF4E: 'n', 0xFF4F: 'o',
+        0xFF50: 'p', 0xFF51: 'q', 0xFF52: 'r', 0xFF53: 's', 0xFF54: 't',
+        0xFF55: 'u', 0xFF56: 'v', 0xFF57: 'w', 0xFF58: 'x', 0xFF59: 'y',
+        0xFF5A: 'z',
+        # Critical symbols for PII detection
+        0xFF20: '@',   # fullwidth @
+        0xFF0E: '.',   # fullwidth .
+        0xFF0D: '-',   # fullwidth -
+        0xFF3F: '_',   # fullwidth _
+        0xFF0B: '+',   # fullwidth +
+        0xFF08: '(',   # fullwidth (
+        0xFF09: ')',   # fullwidth )
+    })
     text = text.translate(_FULLWIDTH_TABLE)
 
     # 4. Arabic-Indic digits
     text = text.translate(_ARABIC_INDIC_TABLE)
 
-    # 5. Dot-separated single-digit compaction — 1.2.3.-.4.5.-.6.7.8.9 → 123-45-6789
-    #    Only triggers on SINGLE digits separated by dots (deliberate obfuscation).
-    #    Won't touch IPs (192.168), versions (3.13), or decimals (99.99).
+    # 4b. Text substitution normalization — [at]/(at) → @, [dot]/(dot) → .
+    text = re.sub(r'\s*[\[(]\s*at\s*[\])]\s*', '@', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s*[\[(]\s*dot\s*[\])]\s*', '.', text, flags=re.IGNORECASE)
+
+    # 4c. Space-around-@ normalization — "john @ example.com" → "john@example.com"
+    text = re.sub(r'(?<=\w)\s+@\s+(?=\w)', '@', text)
+
+    # 5. Dot/slash-separated digit groups → dash separator
+    #    "123.45.6789" → "123-45-6789"  (SSN with dots)
+    #    "555/867/5309" → "555-867-5309" (phone with slashes)
+    text = re.sub(r'\b(\d{3})[./](\d{2})[./](\d{4})\b', r'\1-\2-\3', text)   # SSN
+    text = re.sub(r'\b(\d{3})[./](\d{3})[./](\d{4})\b', r'\1-\2-\3', text)   # phone
+
+    #    Single-digit dot separation: 1.2.3.-.4.5.-.6.7.8.9 → 123-45-6789
     text = re.sub(
         r'(?<!\d)(\d)(?:\.(\d))+(?!\d)',
         lambda m: m.group(0).replace('.', ''),
         text
     )
-    # Also strip dots adjacent to dashes in the result: "123.-.45" → "123-45"
+    # Strip dots adjacent to dashes: "123.-.45" → "123-45"
     text = re.sub(r'\.(?=-)', '', text)
     text = re.sub(r'(?<=-)\.', '', text)
 
-    # 6. Spaced digit compaction — collapse isolated single digits separated by spaces
-    #    Step A: compact each run of space-separated digits: "4 5" → "45", "5 5 5" → "555"
+    # 6. Spaced digit compaction — "5 5 5 - 8 6 7 - 5 3 0 9" → "555-867-5309"
+    #    Step A: compact runs of space-separated single digits
     text = re.sub(r'\b(\d)((?:\s+\d){1,})\b',
                   lambda m: m.group(0).replace(' ', ''), text)
     #    Step B: normalize spaces around separators between digit groups
-    #    "555 - 123 - 4567" → "555-123-4567"
     text = re.sub(r'(\d)\s+[-./]\s+(\d)', r'\1-\2', text)
+
+    # 6b. Fully-spaced text compaction — "j o h n . d o e @ e x a m p l e . c o m" → "john.doe@example.com"
+    #     Heuristic: if 85%+ of whitespace-separated tokens are single chars AND 8+ tokens,
+    #     the whole string is deliberately spaced — collapse all spaces.
+    _tokens = text.split()
+    if len(_tokens) >= 8 and sum(1 for _t in _tokens if len(_t) <= 1) / len(_tokens) >= 0.85:
+        text = ''.join(_tokens)
+
+    # 6c. Spaced single-letter compaction — "j o h n" → "john", "I g n o r e" → "Ignore"
+    #     Threshold {2,} catches 3+ char sequences (d o e, c o m, etc.)
+    text = re.sub(
+        r'\b([a-zA-Z])((?:\s+[a-zA-Z]){2,})\b',
+        lambda m: m.group(0).replace(' ', ''),
+        text
+    )
+
+    # 6d. Single-digit dash/dot sequence compaction — "1-2-3-4-5-6-7-8-9" → "123456789"
+    text = re.sub(r'\b(\d)(?:[-.](\d)){6,}\b', lambda m: m.group(0).replace('-', '').replace('.', ''), text)
+
+    # 6e. Bare digit string re-segmentation (after all compaction passes)
+    #     "123456789"  → "123-45-6789"   (SSN: 9 digits)
+    #     "5558675309" → "555-867-5309"  (phone: 10 digits)
+    text = re.sub(r'(?<!\d)(\d{3})(\d{2})(\d{4})(?!\d)', r'\1-\2-\3', text)   # 9-digit SSN
+    text = re.sub(r'(?<!\d)(\d{3})(\d{3})(\d{4})(?!\d)', r'\1-\2-\3', text)   # 10-digit phone
 
     # 3. Base64 decode — find base64-looking tokens, decode, append decoded text
     #    so PII/injection patterns can match the decoded content.

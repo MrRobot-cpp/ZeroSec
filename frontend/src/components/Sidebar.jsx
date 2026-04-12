@@ -20,6 +20,7 @@ export default function Sidebar() {
     { label: "Policies", path: "/policies", permission: "update" }, // Requires update permission (managers+)
     { label: "Users & Access", path: "/users", permission: "admin" }, // Admin only
     { label: "Logs & Alerts", path: "/logs-alerts", permission: "read" }, // Anyone with read access
+    { label: "Red Team", path: "/red-team", permission: "admin" }, // Admin only
   ];
 
   const bottomNavItems = [
@@ -40,7 +41,7 @@ export default function Sidebar() {
   const visibleBottomNavItems = filterByPermission(bottomNavItems);
 
   return (
-    <aside className="fixed top-0 left-0 w-64 h-screen bg-gray-900 flex flex-col p-4 border-r border-gray-800 z-30">
+    <aside className="fixed top-0 left-0 w-56 h-screen bg-gray-900 flex flex-col p-4 border-r border-gray-800 z-30">
       <h1 className="text-2xl font-bold mb-8">ZeroSec</h1>
 
       {/* Main Navigation */}
@@ -51,13 +52,19 @@ export default function Sidebar() {
             <button
               key={item.path}
               onClick={() => router.push(item.path)}
-              className={`flex items-center gap-3 p-3 rounded-md w-full text-left transition-colors ${isActive
-                ? "bg-blue-600 text-white"
+              className={`flex items-center gap-3 p-3 rounded-md w-full text-left transition-colors relative ${isActive
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
                 : "hover:bg-gray-800 text-gray-300"
                 }`}
             >
               <span className="text-lg">{item.icon}</span>
               <span>{item.label}</span>
+              {item.label === "Red Team" && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center">
+                  <span className="absolute animate-ping inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500 shadow-[0_0_8px_rgba(239,68,68,1)]"></span>
+                </div>
+              )}
             </button>
           );
         })}

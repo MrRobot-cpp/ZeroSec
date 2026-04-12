@@ -30,6 +30,7 @@ from backend.api.subscriptions import subscriptions_bp
 from backend.api.metrics import metrics_bp
 from backend.api.rag_config import rag_config_bp
 from backend.api.secure_query import secure_query_bp
+from backend.api.red_team import red_team_bp
 
 # Get environment
 env = os.getenv('FLASK_ENV', 'development')
@@ -59,6 +60,7 @@ app.register_blueprint(subscriptions_bp)
 app.register_blueprint(metrics_bp)
 app.register_blueprint(rag_config_bp)
 app.register_blueprint(secure_query_bp)
+app.register_blueprint(red_team_bp)
 
 @app.route("/query", methods=["POST"])
 def query_route():

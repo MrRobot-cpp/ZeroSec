@@ -9,9 +9,10 @@ export default function RagPage() {
   const [activeTab, setActiveTab] = useState("standard");
 
   return (
-    <div className="flex min-h-screen bg-gray-900 text-white">
-      <Sidebar />
-      <main className="ml-64 flex-1 p-6 flex flex-col h-screen">
+    <ProtectedRoute requiredPermission="rag_query">
+      <div className="flex min-h-screen bg-gray-900 text-white">
+        <Sidebar />
+        <main className="ml-64 flex-1 p-6 flex flex-col h-screen">
 
           {/* Tab switcher */}
           <div className="flex gap-1 mb-4 bg-gray-800/50 rounded-lg p-1 w-fit border border-gray-700/50 shrink-0">

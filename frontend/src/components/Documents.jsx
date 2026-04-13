@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import PropTypes from "prop-types";
 import useDocuments from "@/hooks/useDocuments";
 import { getClearanceLevels } from "@/services/attributeService";
+import { fetchVaultData } from "@/services/documentService";
 
 const SENSITIVITY_STYLES = {
   low:    { label: "Low",    text: "text-green-400",  bg: "bg-green-900/30",  border: "border-green-600" },
@@ -101,13 +102,133 @@ function ClearanceDropdown({ value, onChange, levels, disabled }) {
   );
 }
 
-export default function Documents() {
-  const router = useRouter();
+function VaultInspectorModal({ doc, onClose }) {
+  const [data, setData] = useState(null);
+  const [loadErr, setLoadErr] = useState(null);
+  const [chunkIdx, setChunkIdx] = useState(0);
+  const [copied, setCopied] = useState(null);
+
+  // Fetch on mount
+  useEffect(() => {
+    fetchVaultData(doc.id)
+      .then(setData)
+      .catch(e => setLoadErr(e.message));
+  }, [doc.id]);
+
+  const copyToClipboard = (text, label) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(label);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
+
+  const chunk = data?.chunks?.[chunkIdx];
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-2xl shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-gray-700">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🔐</span>
+            <div>
+              <h2 className="text-white font-bold text-lg">Vault Inspector</h2>
+              <p className="text-gray-400 text-xs font-mono truncate max-w-xs">{doc.name}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-xl">✕</button>
+        </div>
+
+        <div className="p-5">
+          {loadErr && (
+            <div className="p-4 bg-red-900/40 border border-red-700 rounded-lg text-red-300 text-sm">{loadErr}</div>
+          )}
+
+          {!data && !loadErr && (
+            <div className="text-center py-10 text-gray-400">
+              <div className="animate-spin text-3xl mb-3">⚙️</div>
+              Loading encrypted vault data…
+            </div>
+          )}
+
+          {data && (
+            <>
+              {/* Algorithm banner */}
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                {[
+                  { label: 'Algorithm', value: data.algorithm },
+                  { label: 'KDF', value: data.kdf },
+                  { label: 'Encrypted Chunks', value: data.total_chunks },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-gray-800 border border-gray-700 rounded-lg p-3 text-center">
+                    <p className="text-gray-400 text-xs mb-1">{label}</p>
+                    <p className="text-green-400 font-mono font-bold text-sm">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Chunk navigator */}
+              <div className="bg-black border border-gray-700 rounded-lg p-4 font-mono text-sm space-y-3">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-gray-400 text-xs">
+                    Chunk {chunkIdx + 1} of {data.total_chunks}
+                    {chunk?.created_at && (
+                      <span className="ml-2 text-gray-600">· {chunk.created_at.slice(0, 19)}</span>
+                    )}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setChunkIdx(i => Math.max(0, i - 1))}
+                      disabled={chunkIdx === 0}
+                      className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs disabled:opacity-40 transition-colors"
+                    >← prev</button>
+                    <button
+                      onClick={() => setChunkIdx(i => Math.min(data.total_chunks - 1, i + 1))}
+                      disabled={chunkIdx === data.total_chunks - 1}
+                      className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-xs disabled:opacity-40 transition-colors"
+                    >next →</button>
+                  </div>
+                </div>
+
+                {chunk && [
+                  { label: 'Key Version', value: `v${chunk.key_version}`, field: 'kv' },
+                  { label: 'Nonce (96-bit)', value: chunk.nonce_hex, field: 'nonce' },
+                  { label: 'Auth Tag (128-bit)', value: chunk.auth_tag_hex, field: 'tag' },
+                  { label: `Ciphertext (${chunk.ciphertext_bytes} bytes, preview)`, value: chunk.ciphertext_hex, field: 'ct' },
+                ].map(({ label, value, field }) => (
+                  <div key={field}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-gray-500 text-xs">{label}</span>
+                      <button
+                        onClick={() => copyToClipboard(value, field)}
+                        className="text-gray-600 hover:text-gray-300 text-xs transition-colors"
+                      >
+                        {copied === field ? '✓ copied' : 'copy'}
+                      </button>
+                    </div>
+                    <p className="text-green-400 break-all text-xs leading-relaxed">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-gray-600 text-xs text-center mt-4">
+                Plaintext never stored — this is all that exists on disk
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Documents() {  const router = useRouter();
   const { documents, loading, error, uploading, upload, remove } = useDocuments();
   const [uploadError, setUploadError] = useState(null);
   const [uploadSuccess, setUploadSuccess] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [sensitivity, setSensitivity] = useState("medium");
+  const [vaultDoc, setVaultDoc] = useState(null);
   const [clearanceLevelId, setClearanceLevelId] = useState(null);
   const [clearanceLevels, setClearanceLevels] = useState([]);
   const fileInputRef = useRef(null);
@@ -330,6 +451,16 @@ export default function Documents() {
                         >
                           View
                         </button>
+                        {doc.sensitivity?.toLowerCase() === "high" && (
+                          <button
+                            onClick={() => setVaultDoc(doc)}
+                            className="px-3 py-1 rounded text-sm transition-colors font-medium"
+                            style={{ background: '#29b519', color: '#ffffff' }}
+                            title="View encrypted cipher data"
+                          >
+                            Cipher
+                          </button>
+                        )}
                         <button
                           onClick={() => setDeleteConfirm({ id: doc.id, name: doc.name })}
                           className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm transition-colors"
@@ -372,6 +503,11 @@ export default function Documents() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Vault Inspector Modal */}
+      {vaultDoc && (
+        <VaultInspectorModal doc={vaultDoc} onClose={() => setVaultDoc(null)} />
       )}
 
       {/* Info Footer */}

@@ -20,11 +20,11 @@ export default function useDocuments() {
     }
   }, []);
 
-  const upload = useCallback(async (file, sensitivity = "medium") => {
+  const upload = useCallback(async (file, sensitivity = "medium", clearanceLevelId = null) => {
     setUploading(true);
     setError(null);
     try {
-      const result = await uploadDocument(file, sensitivity);
+      const result = await uploadDocument(file, sensitivity, clearanceLevelId);
       // Optimistic update — add immediately using response data
       const newDoc = result.document;
       if (newDoc) {

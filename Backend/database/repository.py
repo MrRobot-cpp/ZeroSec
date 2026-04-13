@@ -183,11 +183,19 @@ class RoleRepository:
                 ]
             },
             {
-                'name': 'User',
-                'description': 'Standard user access',
+                'name': 'Auditor',
+                'description': 'Read-only access to logs, documents, canary watermarks, and RAG assistant',
                 'permissions': [
-                    'read', 'create',
-                    'document_view', 'document_upload', 'rag_query'
+                    'read',
+                    'audit_view', 'canary_manage', 'document_view', 'rag_query'
+                ]
+            },
+            {
+                'name': 'User',
+                'description': 'Standard user access — RAG assistant only',
+                'permissions': [
+                    'read',
+                    'rag_query'
                 ]
             },
             {
@@ -195,7 +203,7 @@ class RoleRepository:
                 'description': 'View only access',
                 'permissions': [
                     'read',
-                    'document_view', 'rag_query'
+                    'rag_query'
                 ]
             }
         ]

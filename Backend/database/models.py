@@ -37,6 +37,8 @@ class Department(db.Model):
     department_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     organization_id = db.Column(db.Integer, db.ForeignKey('organisation.organization_id'), nullable=False)
     name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    color = db.Column(db.String(20), nullable=True, default='#3b82f6')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
@@ -53,6 +55,8 @@ class ClearanceLevel(db.Model):
     organization_id = db.Column(db.Integer, db.ForeignKey('organisation.organization_id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     level = db.Column(db.Integer, nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    color = db.Column(db.String(20), nullable=True)
 
     # Relationships
     users = db.relationship('User', backref='clearance_level', lazy=True)
@@ -271,6 +275,23 @@ class PayloadLog(db.Model):
 
     def __repr__(self):
         return f'<PayloadLog {self.decision} score={self.final_score}>'
+
+class AnomalyScore(db.Model):
+    """Anomaly detection scores for audit log events"""
+    __tablename__ = 'anomaly_scores'
+
+    score_id        = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    audit_id        = db.Column(db.Integer, db.ForeignKey('audit_logs.audit_id'), unique=True, index=True)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organisation.organization_id'), index=True)
+    user_id         = db.Column(db.Integer, nullable=True)
+    anomaly_score   = db.Column(db.Float, nullable=False)
+    anomaly_type    = db.Column(db.String(100), nullable=True)
+    is_anomaly      = db.Column(db.Boolean, nullable=False, default=False)
+    model_version   = db.Column(db.String(50), nullable=True)
+    scored_at       = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<AnomalyScore audit_id={self.audit_id} score={self.anomaly_score}>'
 
 
 # ---------------------------------------------------------------------------

@@ -3,25 +3,33 @@
  *
  * API service layer for attribute management operations (ABAC).
  * Handles departments and clearance levels.
- * TODO: Implement backend API endpoints at http://localhost:5200/api/attributes
- *
- * Expected Backend Endpoints:
- * Departments:
- * - GET    /api/attributes/departments        - Get all departments
- * - GET    /api/attributes/departments/:id    - Get department by ID
- * - POST   /api/attributes/departments        - Create new department
- * - PUT    /api/attributes/departments/:id    - Update department
- * - DELETE /api/attributes/departments/:id    - Delete department
- *
- * Clearance Levels:
- * - GET    /api/attributes/clearance-levels        - Get all clearance levels
- * - GET    /api/attributes/clearance-levels/:id    - Get clearance level by ID
- * - POST   /api/attributes/clearance-levels        - Create new clearance level
- * - PUT    /api/attributes/clearance-levels/:id    - Update clearance level
- * - DELETE /api/attributes/clearance-levels/:id    - Delete clearance level
+ * Backend API endpoints at /api/attributes
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5200";
+import apiClient from './apiClient';
+
+// ─── Mappers ───
+
+function mapDepartment(d) {
+  return {
+    id: String(d.department_id),
+    name: d.name,
+    description: d.description || '',
+    color: d.color || '#3b82f6',
+    userCount: d.user_count ?? 0,
+  };
+}
+
+function mapClearanceLevel(c) {
+  return {
+    id: String(c.clearance_level_id),
+    name: c.name,
+    description: c.description || '',
+    level: c.level,
+    color: c.color || '#3b82f6',
+    userCount: c.user_count ?? 0,
+  };
+}
 
 // ========== Department Operations ==========
 
@@ -30,14 +38,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5200";
  * @returns {Promise<Array>} Array of department objects
  */
 export async function getDepartments() {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/departments`, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header when auth is implemented
-      // "Authorization": `Bearer ${getAuthToken()}`,
-    },
-  });
+  const response = await apiClient.get('/api/attributes/departments');
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -45,7 +46,7 @@ export async function getDepartments() {
   }
 
   const data = await response.json();
-  return data.departments || [];
+  return (data.departments || []).map(mapDepartment);
 }
 
 /**
@@ -54,13 +55,7 @@ export async function getDepartments() {
  * @returns {Promise<Object>} Department object
  */
 export async function getDepartmentById(departmentId) {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/departments/${departmentId}`, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-  });
+  const response = await apiClient.get(`/api/attributes/departments/${departmentId}`);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -68,26 +63,16 @@ export async function getDepartmentById(departmentId) {
   }
 
   const data = await response.json();
-  return data.department;
+  return mapDepartment(data.department);
 }
 
 /**
  * Create new department
- * @param {Object} departmentData - Department data
- * @param {string} departmentData.name - Department name
- * @param {string} departmentData.description - Department description
- * @param {string} departmentData.color - Department color (hex)
+ * @param {Object} departmentData - { name, description, color }
  * @returns {Promise<Object>} Created department object
  */
 export async function createDepartment(departmentData) {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/departments`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-    body: JSON.stringify(departmentData),
-  });
+  const response = await apiClient.post('/api/attributes/departments', departmentData);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -95,7 +80,7 @@ export async function createDepartment(departmentData) {
   }
 
   const data = await response.json();
-  return data.department;
+  return mapDepartment(data.department);
 }
 
 /**
@@ -105,14 +90,7 @@ export async function createDepartment(departmentData) {
  * @returns {Promise<Object>} Updated department object
  */
 export async function updateDepartment(departmentId, departmentData) {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/departments/${departmentId}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-    body: JSON.stringify(departmentData),
-  });
+  const response = await apiClient.put(`/api/attributes/departments/${departmentId}`, departmentData);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -120,7 +98,7 @@ export async function updateDepartment(departmentId, departmentData) {
   }
 
   const data = await response.json();
-  return data.department;
+  return mapDepartment(data.department);
 }
 
 /**
@@ -129,13 +107,7 @@ export async function updateDepartment(departmentId, departmentData) {
  * @returns {Promise<void>}
  */
 export async function deleteDepartment(departmentId) {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/departments/${departmentId}`, {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-  });
+  const response = await apiClient.delete(`/api/attributes/departments/${departmentId}`);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -150,13 +122,7 @@ export async function deleteDepartment(departmentId) {
  * @returns {Promise<Array>} Array of clearance level objects
  */
 export async function getClearanceLevels() {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/clearance-levels`, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-  });
+  const response = await apiClient.get('/api/attributes/clearance-levels');
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -164,7 +130,7 @@ export async function getClearanceLevels() {
   }
 
   const data = await response.json();
-  return data.clearanceLevels || [];
+  return (data.clearanceLevels || []).map(mapClearanceLevel);
 }
 
 /**
@@ -173,13 +139,7 @@ export async function getClearanceLevels() {
  * @returns {Promise<Object>} Clearance level object
  */
 export async function getClearanceLevelById(clearanceId) {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/clearance-levels/${clearanceId}`, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-  });
+  const response = await apiClient.get(`/api/attributes/clearance-levels/${clearanceId}`);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -187,27 +147,16 @@ export async function getClearanceLevelById(clearanceId) {
   }
 
   const data = await response.json();
-  return data.clearanceLevel;
+  return mapClearanceLevel(data.clearanceLevel);
 }
 
 /**
  * Create new clearance level
- * @param {Object} clearanceData - Clearance level data
- * @param {string} clearanceData.name - Clearance level name
- * @param {string} clearanceData.description - Clearance level description
- * @param {number} clearanceData.level - Security level (1-5, higher = more access)
- * @param {string} clearanceData.color - Clearance level color (hex)
+ * @param {Object} clearanceData - { name, description, level, color }
  * @returns {Promise<Object>} Created clearance level object
  */
 export async function createClearanceLevel(clearanceData) {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/clearance-levels`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-    body: JSON.stringify(clearanceData),
-  });
+  const response = await apiClient.post('/api/attributes/clearance-levels', clearanceData);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -215,7 +164,7 @@ export async function createClearanceLevel(clearanceData) {
   }
 
   const data = await response.json();
-  return data.clearanceLevel;
+  return mapClearanceLevel(data.clearanceLevel);
 }
 
 /**
@@ -225,14 +174,7 @@ export async function createClearanceLevel(clearanceData) {
  * @returns {Promise<Object>} Updated clearance level object
  */
 export async function updateClearanceLevel(clearanceId, clearanceData) {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/clearance-levels/${clearanceId}`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-    body: JSON.stringify(clearanceData),
-  });
+  const response = await apiClient.put(`/api/attributes/clearance-levels/${clearanceId}`, clearanceData);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -240,7 +182,7 @@ export async function updateClearanceLevel(clearanceId, clearanceData) {
   }
 
   const data = await response.json();
-  return data.clearanceLevel;
+  return mapClearanceLevel(data.clearanceLevel);
 }
 
 /**
@@ -249,13 +191,7 @@ export async function updateClearanceLevel(clearanceId, clearanceData) {
  * @returns {Promise<void>}
  */
 export async function deleteClearanceLevel(clearanceId) {
-  const response = await fetch(`${API_BASE_URL}/api/attributes/clearance-levels/${clearanceId}`, {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      // TODO: Add authentication header
-    },
-  });
+  const response = await apiClient.delete(`/api/attributes/clearance-levels/${clearanceId}`);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));

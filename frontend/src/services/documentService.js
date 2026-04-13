@@ -11,10 +11,13 @@ export async function getDocuments() {
   return data.documents || [];
 }
 
-export async function uploadDocument(file, sensitivity = "medium") {
+export async function uploadDocument(file, sensitivity = "medium", clearanceLevelId = null) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("sensitivity", sensitivity);
+  if (clearanceLevelId !== null) {
+    formData.append("clearance_level_id", String(clearanceLevelId));
+  }
 
   const response = await apiClient.post('/api/documents/upload', formData);
   if (!response.ok) {

@@ -86,6 +86,24 @@ def register():
             from backend.database.repository import RoleRepository
             RoleRepository.create_default_roles(org.organization_id)
 
+            # Create default clearance levels for the new organization
+            default_clearances = [
+                {'name': 'Public',       'level': 1, 'color': '#6b7280', 'description': 'Publicly accessible information'},
+                {'name': 'Internal',     'level': 2, 'color': '#3b82f6', 'description': 'Internal use only'},
+                {'name': 'Confidential', 'level': 3, 'color': '#f59e0b', 'description': 'Confidential — restricted distribution'},
+                {'name': 'Secret',       'level': 4, 'color': '#ef4444', 'description': 'Secret — restricted access'},
+                {'name': 'Top Secret',   'level': 5, 'color': '#7c3aed', 'description': 'Top Secret — highest restriction'},
+            ]
+            for cl_def in default_clearances:
+                db.session.add(ClearanceLevel(
+                    organization_id=org.organization_id,
+                    name=cl_def['name'],
+                    level=cl_def['level'],
+                    color=cl_def['color'],
+                    description=cl_def['description'],
+                ))
+            db.session.flush()
+
         # Get default department
         dept = Department.query.filter_by(
             organization_id=org.organization_id

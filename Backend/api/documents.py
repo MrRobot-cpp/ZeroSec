@@ -8,8 +8,28 @@ from werkzeug.utils import secure_filename
 
 from backend.services.rag_service import refresh_retriever
 from backend.database.repository import DocumentRepository
+from backend.database.models import User
 from backend.utils.rbac import require_permission, get_current_organization_id
 from backend.utils.audit import log_audit
+from backend.utils.abac import evaluate_abac_policies
+
+
+def _check_clearance_access(user, document):
+    """Return (allowed: bool, reason: str|None). Admins (caller must check) bypass this."""
+    if document.clearance_level_id is None:
+        return True, None
+    if user.clearance_level_id is None:
+        return False, (
+            f"Document requires clearance '{document.clearance_level.name}' "
+            "but your account has no clearance level assigned"
+        )
+    if user.clearance_level.level >= document.clearance_level.level:
+        return True, None
+    return False, (
+        f"Insufficient clearance: document requires level {document.clearance_level.level} "
+        f"({document.clearance_level.name}), you have level {user.clearance_level.level} "
+        f"({user.clearance_level.name})"
+    )
 
 documents_bp = Blueprint('documents', __name__, url_prefix='/api')
 
@@ -253,8 +273,17 @@ def get_documents():
         # Get documents from database
         db_documents = DocumentRepository.get_all_documents(organization_id)
 
+        from flask_jwt_extended import get_jwt
+        is_admin = 'admin' in get_jwt().get('permissions', [])
+        user = None if is_admin else User.query.get(int(user_id))
+
         documents = []
         for doc in db_documents:
+            if not is_admin:
+                allowed, _ = _check_clearance_access(user, doc)
+                if not allowed:
+                    continue
+
             # Try to get file stats if file exists
             file_path = DOCS_PATH / doc.filename
             file_size = file_path.stat().st_size if file_path.exists() else 0
@@ -325,6 +354,10 @@ def upload_document():
         else:
             sensitivity = 'High' if any('PII' in issue for issue in issues) else 'Medium' if issues else 'Low'
 
+        # Optional clearance level assignment on upload
+        raw_clearance = request.form.get('clearance_level_id')
+        clearance_level_id = int(raw_clearance) if raw_clearance and raw_clearance.isdigit() else None
+
         # Route based on sensitivity — HIGH never writes plaintext to disk
         if sensitivity == 'High':
             # Create DB record before ingest (needed for doc_id)
@@ -333,6 +366,7 @@ def upload_document():
                 filename=filename,
                 storage_ref=str(HIGH_DOCS_PATH / filename),
                 sensitivity=sensitivity,
+                clearance_level_id=clearance_level_id,
                 user_id=user_id
             )
             try:
@@ -361,6 +395,7 @@ def upload_document():
                 filename=filename,
                 storage_ref=str(file_path),
                 sensitivity=sensitivity,
+                clearance_level_id=clearance_level_id,
                 user_id=user_id
             )
             try:
@@ -405,6 +440,22 @@ def get_document_details(document_id):
 
         if not document or document.organization_id != organization_id:
             return jsonify({'error': 'Document not found'}), 404
+
+        from flask_jwt_extended import get_jwt
+        if 'admin' not in get_jwt().get('permissions', []):
+            user = User.query.get(int(user_id))
+            allowed, reason = _check_clearance_access(user, document)
+            if not allowed:
+                log_audit(organization_id=organization_id, user_id=user_id,
+                          action='clearance_access_denied', target_type='Document',
+                          target_id=document_id, metadata={'reason': reason})
+                return jsonify({'error': 'Access denied', 'reason': reason}), 403
+            abac_ok, abac_reason = evaluate_abac_policies(user, document, organization_id)
+            if not abac_ok:
+                log_audit(organization_id=organization_id, user_id=user_id,
+                          action='abac_access_denied', target_type='Document',
+                          target_id=document_id, metadata={'reason': abac_reason})
+                return jsonify({'error': 'Access denied by policy', 'reason': abac_reason}), 403
 
         file_path = DOCS_PATH / document.filename
 
@@ -464,6 +515,16 @@ def delete_document(document_id):
 
         if not document or document.organization_id != organization_id:
             return jsonify({'error': 'Document not found'}), 404
+
+        from flask_jwt_extended import get_jwt
+        if 'admin' not in get_jwt().get('permissions', []):
+            user = User.query.get(int(user_id))
+            allowed, reason = _check_clearance_access(user, document)
+            if not allowed:
+                log_audit(organization_id=organization_id, user_id=user_id,
+                          action='clearance_access_denied', target_type='Document',
+                          target_id=document_id, metadata={'reason': reason})
+                return jsonify({'error': 'Access denied', 'reason': reason}), 403
 
         filename = document.filename
 

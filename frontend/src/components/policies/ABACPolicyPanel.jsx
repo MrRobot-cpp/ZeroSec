@@ -1,56 +1,35 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PolicyTable from "./common/PolicyTable";
 import PolicyToggle from "./common/PolicyToggle";
+import apiClient from "@/services/apiClient";
 
 export default function ABACPolicyPanel({ onNotify }) {
+  const [policyId, setPolicyId] = useState(null);
   const [enabled, setEnabled] = useState(true);
-  const [enforcementMode, setEnforcementMode] = useState("strict");
+  const [enforcementMode, setEnforcementMode] = useState("permissive");
+  const [rules, setRules] = useState([]);
 
-  const [rules, setRules] = useState([
-    {
-      id: "abac-1",
-      name: "Finance Department - Working Hours",
-      conditions: [
-        { attribute: "department", operator: "=", value: "finance" },
-        { attribute: "time", operator: "within", value: "09:00-17:00" },
-      ],
-      operator: "AND",
-      outcome: "ALLOW",
-      summary: "Allow Finance dept access during 09:00-17:00 UTC",
-      enabled: true,
-    },
-    {
-      id: "abac-2",
-      name: "High Sensitivity - Top Secret Only",
-      conditions: [
-        { attribute: "document_sensitivity", operator: "=", value: "high" },
-        { attribute: "user_clearance", operator: "<", value: "5" },
-      ],
-      operator: "AND",
-      outcome: "DENY",
-      summary: "Deny high sensitivity docs to users without clearance level 5",
-      enabled: true,
-    },
-    {
-      id: "abac-3",
-      name: "Remote Access Restriction",
-      conditions: [{ attribute: "location", operator: "!=", value: "office" }],
-      operator: "AND",
-      outcome: "DENY",
-      summary: "Deny all access from non-office locations",
-      enabled: true,
-    },
-    {
-      id: "abac-4",
-      name: "External Device Block",
-      conditions: [{ attribute: "is_corporate_device", operator: "=", value: "false" }],
-      operator: "AND",
-      outcome: "DENY",
-      summary: "Deny access from non-corporate devices",
-      enabled: false,
-    },
-  ]);
+  // Load existing ABAC policy on mount
+  useEffect(() => {
+    async function loadPolicy() {
+      try {
+        const res = await apiClient.get('/api/policies?type=abac');
+        if (!res.ok) return;
+        const data = await res.json();
+        const policy = data.policies?.[0];
+        if (policy) {
+          setPolicyId(policy.policy_id);
+          setEnabled(policy.enabled ?? true);
+          setRules(policy.config?.rules || []);
+          setEnforcementMode(policy.config?.enforcement_mode || 'permissive');
+        }
+      } catch {
+        // no existing policy — start empty
+      }
+    }
+    loadPolicy();
+  }, []);
 
   const [showAddRule, setShowAddRule] = useState(false);
 
@@ -65,9 +44,28 @@ export default function ABACPolicyPanel({ onNotify }) {
     onNotify("success", "Rule deleted");
   };
 
-  const handleSave = () => {
-    console.log("Saving ABAC policy:", { rules, enforcementMode });
-    onNotify("success", "ABAC Policy saved");
+  const handleSave = async () => {
+    try {
+      const payload = {
+        policy_type: 'abac',
+        config: { rules, enforcement_mode: enforcementMode },
+        enabled,
+      };
+      let res;
+      if (policyId) {
+        res = await apiClient.put(`/api/policies/${policyId}`, payload);
+      } else {
+        res = await apiClient.post('/api/policies', payload);
+        if (res.ok) {
+          const data = await res.json();
+          setPolicyId(data.policy?.policy_id ?? null);
+        }
+      }
+      if (!res.ok) throw new Error('Save failed');
+      onNotify("success", "ABAC Policy saved");
+    } catch {
+      onNotify("error", "Failed to save ABAC policy");
+    }
   };
 
   const tableColumns = [

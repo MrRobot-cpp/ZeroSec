@@ -28,7 +28,6 @@ def main():
         from backend.database.models import User
         from backend.scripts.generate_synthetic_audit import generate_and_insert
         from backend.security.anomaly_detection import get_detector
-        from backend.utils.audit import get_audit_logs
 
         # --- Step 1: resolve user IDs ---
         users = User.query.filter_by(organization_id=args.org_id).all()
@@ -49,36 +48,21 @@ def main():
         print(f"[+] Inserted {result['inserted']} rows  "
               f"({result['normal']} normal, {result['anomalous']} anomalous)")
 
-        # --- Step 3: train the model ---
-        print("[*] Training anomaly model on audit logs...")
-        logs = get_audit_logs(organization_id=args.org_id, limit=10_000)
-        print(f"    Training on {len(logs)} total audit log entries")
-
+        # --- Step 3: check model status ---
+        # NLP model is trained offline via backend/experiments/train_anomaly.ipynb.
+        # This script only injects training data — the pickle must be built separately.
         detector = get_detector()
-        train_result = detector.train(logs)
+        status   = detector.get_status()
 
-        status = train_result.get("status")
-        if status == "cold_start":
-            current = train_result.get("current", 0)
-            minimum = train_result.get("min_required", 50)
-            print(f"[!] Cold start — only {current} logs, need {minimum}. Re-run with more --n-normal.")
-            sys.exit(1)
-        elif status == "error":
-            print(f"[!] Training error: {train_result.get('message')}")
-            sys.exit(1)
-
-        print(f"[+] Model trained: {train_result.get('best_model')} "
-              f"on {train_result.get('trained_on')} windows")
-
-        evaluation = train_result.get("evaluation", {})
-        for model_name, metrics in evaluation.items():
-            f1  = metrics.get("f1", 0)
-            auc = metrics.get("roc_auc", 0)
-            print(f"    {model_name:22s}  F1={f1:.4f}  AUC={auc:.4f}")
-
-        best = train_result.get("best_model")
-        print(f"\n[✓] Done. Selected model: {best}")
-        print("[✓] Anomaly model ready — next red-team run will include a Layer 2 verdict.")
+        if status.get("model_ready"):
+            print(f"[+] NLP anomaly model loaded: {status.get('best_model')} "
+                  f"(trained on {status.get('trained_on')} samples)")
+            print("[✓] Anomaly model ready — next red-team run will include a Layer 2 verdict.")
+        else:
+            print("[!] No trained model found at backend/models/audit_anomaly.pkl")
+            print("    Run the training notebook to build the model:")
+            print("    backend/experiments/train_anomaly.ipynb")
+            print("    The synthetic data injected above will be used for training.")
 
 
 if __name__ == "__main__":

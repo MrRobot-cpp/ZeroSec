@@ -1,9 +1,13 @@
 import PropTypes from "prop-types";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+
+// Color map: ML Anomaly gets violet, rest cycle through threat colors
+const CATEGORY_COLORS = {
+  "ML Anomaly": "#a78bfa",
+};
+const FALLBACK_COLORS = ["#ff4d4d", "#ff9100", "#ffea00", "#2979ff", "#00e676", "#00e5ff"];
 
 export default function BlockedAttacks({ logs }) {
-  // Filter for last 24 hours
-  const now = new Date();
+  const now     = new Date();
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   const recentLogs = logs.filter((l) => {
@@ -11,25 +15,34 @@ export default function BlockedAttacks({ logs }) {
     return logTime >= last24h && l.decision?.toUpperCase() === "BLOCK";
   });
 
-  // Count attack types and format names
+  // Group by attack category
   const attackCounts = {};
   recentLogs.forEach((l) => {
-    let reason = l.reason || "Unknown";
-    // Format the reason for better display
-    reason = reason
-      .replace(/_/g, " ")
-      .split(" ")
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
-    attackCounts[reason] = (attackCounts[reason] || 0) + 1;
+    let category;
+    if (l.is_anomaly || (l.stopped_by || "").toLowerCase().includes("anomaly")) {
+      category = "ML Anomaly";
+    } else {
+      category = (l.reason || "Unknown")
+        .replaceAll("_", " ")
+        .split(" ")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+    }
+    attackCounts[category] = (attackCounts[category] || 0) + 1;
   });
 
-  const pieData = Object.entries(attackCounts).map(([name, value]) => ({
-    name,
-    value,
-  }));
+  // Sort: ML Anomaly first, then by count descending
+  const entries = Object.entries(attackCounts).sort(([aName, aVal], [bName, bVal]) => {
+    if (aName === "ML Anomaly") return -1;
+    if (bName === "ML Anomaly") return 1;
+    return bVal - aVal;
+  });
 
-  const COLORS = ["#ff4d4d", "#ff9100", "#ffea00", "#b388ff", "#2979ff", "#00e676", "#00e5ff"];
+  let fallbackIdx = 0;
+  const getColor = (name) => {
+    if (CATEGORY_COLORS[name]) return CATEGORY_COLORS[name];
+    return FALLBACK_COLORS[fallbackIdx++ % FALLBACK_COLORS.length];
+  };
 
   const totalBlocked = recentLogs.length;
 
@@ -53,18 +66,21 @@ export default function BlockedAttacks({ logs }) {
           </div>
 
           <div className="space-y-2">
-            {pieData.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-gray-700/30 border border-gray-600">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: COLORS[idx % COLORS.length] }}
-                  />
-                  <span className="text-sm text-gray-300">{item.name}</span>
+            {entries.map(([name, count]) => {
+              const color = getColor(name);
+              return (
+                <div
+                  key={name}
+                  className="flex items-center justify-between p-2 rounded-lg bg-gray-700/30 border border-gray-600"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                    <span className="text-sm text-gray-300 truncate">{name}</span>
+                  </div>
+                  <span className="text-sm font-semibold text-white ml-2">{count}</span>
                 </div>
-                <span className="text-sm font-semibold text-white">{item.value}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -75,9 +91,11 @@ export default function BlockedAttacks({ logs }) {
 BlockedAttacks.propTypes = {
   logs: PropTypes.arrayOf(
     PropTypes.shape({
-      decision: PropTypes.string,
-      reason: PropTypes.string,
-      timestamp: PropTypes.string,
+      decision:   PropTypes.string,
+      reason:     PropTypes.string,
+      timestamp:  PropTypes.string,
+      stopped_by: PropTypes.string,
+      is_anomaly: PropTypes.bool,
     })
   ).isRequired,
 };

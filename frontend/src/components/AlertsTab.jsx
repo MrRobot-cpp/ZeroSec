@@ -19,6 +19,12 @@ export default function AlertsTab({ logsData }) {
   }, [filteredAlerts]);
 
   const alertTypeConfig = {
+    anomaly: {
+      label: "ML Anomalies",
+      color: "text-violet-400",
+      bgColor: "bg-violet-900/30",
+      borderColor: "border-violet-500",
+    },
     canary: {
       label: "Canary Triggers",
       color: "text-yellow-400",
@@ -114,6 +120,7 @@ export default function AlertsTab({ logsData }) {
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             >
               <option value="all">All Types</option>
+              <option value="anomaly">ML Anomalies</option>
               <option value="canary">Canary Triggers</option>
               <option value="jailbreak">Jailbreak Attempts</option>
               <option value="leak">Data Leak Attempts</option>
@@ -212,9 +219,14 @@ export default function AlertsTab({ logsData }) {
                           Stopped by: {alert.stopped_by}
                         </span>
                       )}
-                      {alert.score !== undefined && (
-                        <span className="px-2 py-1 bg-gray-700 text-gray-300 rounded">
-                          Score: {alert.score.toFixed(2)}
+                      {typeof alert.anomaly_score === "number" && (
+                        <span className="px-2 py-1 bg-violet-900/40 text-violet-300 border border-violet-700/50 rounded font-mono text-xs">
+                          ML score: {alert.anomaly_score.toFixed(3)}
+                        </span>
+                      )}
+                      {alert.anomaly_type && (
+                        <span className="px-2 py-1 bg-gray-700 text-gray-400 rounded text-xs italic">
+                          {alert.anomaly_type}
                         </span>
                       )}
                     </div>

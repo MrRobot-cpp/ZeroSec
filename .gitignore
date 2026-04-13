@@ -63,3 +63,6 @@ bert*
 confusion*
 eda*
 training_curves*
+
+enc*
+*.pdf

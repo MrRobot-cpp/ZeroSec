@@ -24,13 +24,16 @@ export default function useLogs() {
       // Logs are all entries
       setLogs(allLogs);
 
-      // Alerts are blocked entries with specific reasons
+      // Alerts are blocked entries with specific reasons, plus all ML-detected anomalies
       const alertsData = allLogs
-        .filter((log) => log.decision?.toUpperCase() === "BLOCK")
+        .filter(
+          (log) =>
+            log.decision?.toUpperCase() === "BLOCK" || log.is_anomaly === true
+        )
         .map((log) => ({
           ...log,
-          alertType: categorizeAlert(log.reason, log.stopped_by),
-          severity: calculateSeverity(log.reason, log.stopped_by),
+          alertType: categorizeAlert(log.reason, log.stopped_by, log.is_anomaly),
+          severity: calculateSeverity(log.reason, log.stopped_by, log.anomaly_score),
         }));
 
       setAlerts(alertsData);
@@ -139,12 +142,21 @@ export default function useLogs() {
 }
 
 /**
- * Categorize alert based on reason and stopped_by
+ * Categorize alert based on reason, stopped_by, and ML anomaly flag.
  */
-function categorizeAlert(reason, stoppedBy) {
+function categorizeAlert(reason, stoppedBy, isAnomaly) {
   const reasonLower = reason?.toLowerCase() || "";
   const stoppedByLower = stoppedBy?.toLowerCase() || "";
 
+  // ML-detected anomaly — explicit category so it renders separately from
+  // rule-based "suspicious" entries.
+  if (
+    isAnomaly ||
+    stoppedByLower.includes("anomaly detection") ||
+    reasonLower.includes("anomaly:")
+  ) {
+    return "anomaly";
+  }
   if (
     reasonLower.includes("canary") ||
     reasonLower.includes("insider threat") ||
@@ -168,7 +180,6 @@ function categorizeAlert(reason, stoppedBy) {
   }
   if (
     reasonLower.includes("suspicious") ||
-    reasonLower.includes("anomaly") ||
     reasonLower.includes("unusual")
   ) {
     return "suspicious";
@@ -178,9 +189,17 @@ function categorizeAlert(reason, stoppedBy) {
 }
 
 /**
- * Calculate severity based on alert characteristics
+ * Calculate severity. For ML anomalies the score drives severity directly;
+ * for rule-based blocks we fall back to reason/stopped_by heuristics.
  */
-function calculateSeverity(reason, stoppedBy) {
+function calculateSeverity(reason, stoppedBy, anomalyScore) {
+  // Score-based severity when the anomaly detector has a value
+  if (typeof anomalyScore === "number") {
+    if (anomalyScore >= 0.9) return "critical";
+    if (anomalyScore >= 0.75) return "high";
+    if (anomalyScore >= 0.45) return "medium";
+  }
+
   const reasonLower = reason?.toLowerCase() || "";
   const stoppedByLower = stoppedBy?.toLowerCase() || "";
 
@@ -208,6 +227,5 @@ function calculateSeverity(reason, stoppedBy) {
     return "medium";
   }
 
-  // Low severity
   return "low";
 }

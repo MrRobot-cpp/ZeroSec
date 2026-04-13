@@ -61,7 +61,6 @@ export default function Dashboard() {
           />
           <TopAlerts
             logs={logs}
-            alerts={dashboardData.alerts}
           />
           <QueryOverview
             logs={logs}
@@ -73,7 +72,6 @@ export default function Dashboard() {
         <div className="grid grid-cols-3 gap-4 flex-1">
           <BlockedAttacks
             logs={logs}
-            securityStats={dashboardData.security}
           />
           <DataIntakeStatus
             documentStats={dashboardData.documents}

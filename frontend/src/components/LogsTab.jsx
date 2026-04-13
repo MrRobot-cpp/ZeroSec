@@ -32,6 +32,31 @@ export default function LogsTab({ logsData }) {
     setShowDetailModal(true);
   };
 
+  const getAnomalyBadge = (score, isAnomaly) => {
+    if (score === null || score === undefined) {
+      return <span className="text-gray-600 text-xs">—</span>;
+    }
+    if (score >= 0.75 || isAnomaly) {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-bold bg-red-900/60 text-red-300 border border-red-700">
+          {score.toFixed(2)} HIGH
+        </span>
+      );
+    }
+    if (score >= 0.45) {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-medium bg-orange-900/50 text-orange-300 border border-orange-700">
+          {score.toFixed(2)} MED
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-1 rounded text-xs text-gray-400">
+        {score.toFixed(2)}
+      </span>
+    );
+  };
+
   const getDecisionBadge = (decision) => {
     const decisionUpper = decision?.toUpperCase();
     if (decisionUpper === "ALLOW") {
@@ -125,7 +150,7 @@ export default function LogsTab({ logsData }) {
                 <th className="py-4 px-6 font-medium">Decision</th>
                 <th className="py-4 px-6 font-medium">Reason</th>
                 <th className="py-4 px-6 font-medium">Stopped By</th>
-                <th className="py-4 px-6 font-medium">Score</th>
+                <th className="py-4 px-6 font-medium">Anomaly Risk</th>
                 <th className="py-4 px-6 font-medium">Actions</th>
               </tr>
             </thead>
@@ -171,8 +196,8 @@ export default function LogsTab({ logsData }) {
                     <td className="py-4 px-6 text-gray-300 text-sm">
                       {log.stopped_by || "N/A"}
                     </td>
-                    <td className="py-4 px-6 text-gray-300 text-sm">
-                      {log.score !== undefined ? log.score.toFixed(2) : "N/A"}
+                    <td className="py-4 px-6">
+                      {getAnomalyBadge(log.anomaly_score, log.is_anomaly)}
                     </td>
                     <td className="py-4 px-6">
                       <button

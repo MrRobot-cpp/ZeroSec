@@ -75,12 +75,37 @@ app.register_blueprint(red_team_bp)
 @app.route("/query", methods=["POST"])
 def query_route():
     """Query RAG system"""
+    from backend.utils.audit import log_audit
     try:
         data = request.get_json(force=True)
         question = data.get("question", "")
 
+        # Try to get user identity for auditing
+        user_id = None
+        org_id = 1
+        try:
+            from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, get_jwt
+            verify_jwt_in_request(optional=True)
+            user_id = get_jwt_identity()
+            org_id = get_jwt().get("organization_id", 1)
+        except Exception:
+            pass
+
         result = query_rag(question)
         log_decision(question, result)
+
+        # Log audit event for anomaly detection
+        log_audit(
+            organization_id=org_id,
+            user_id=user_id,
+            action="rag_query",
+            target_type="RAG",
+            metadata={
+                "query": question[:200],
+                "decision": result.get("decision", "ALLOW"),
+                "reason": result.get("reason", "N/A")
+            }
+        )
 
         return jsonify(result)
     except Exception as e:
@@ -112,32 +137,36 @@ def logs():
         from backend.database.models import AuditLog
         from backend.database.db import db
 
-        # Default org — security logs are cross-org visible for now
+        # Get organization_id from JWT if present, otherwise default to 1
         organization_id = 1
+        try:
+            from flask_jwt_extended import verify_jwt_in_request, get_jwt
+            verify_jwt_in_request(optional=True)
+            claims = get_jwt()
+            if claims:
+                organization_id = claims.get("organization_id", 1)
+        except Exception:
+            pass
 
         # Get audit logs filtered by organization
         audit_logs = AuditLog.query.filter_by(
             organization_id=organization_id
         ).order_by(AuditLog.created_at.desc()).limit(100).all()
 
-        # Get firewall logs
-        combined_logs = get_logs()
-
+        # Get firewall logs first to build the base list
+        raw_firewall_logs = get_logs()
+        
         # Security action mappings for proper log categorization
         BLOCK_ACTIONS = {
-            'canary_token_triggered',
-            'unauthorized_access',
-            'policy_violation',
-            'llm_judge_block',
-            'firewall_injection_block',
-            'firewall_canary_block',
-            'pii_data_leak',
+            'canary_token_triggered', 'unauthorized_access', 'policy_violation',
+            'llm_judge_block', 'firewall_injection_block', 'firewall_canary_block',
+            'pii_data_leak', 'anomaly_score_block'
         }
         REASON_MAP = {
             'canary_token_triggered': 'Insider Threat — Canary Token',
             'llm_judge_block': 'LLM Judge — Malicious Chunk Detected',
             'firewall_injection_block': 'Firewall — Prompt Injection',
-            'firewall_canary_block': 'Firewall — Canary Token in Query',
+            'firewall_canary_block': 'Canary Detection',
             'pii_data_leak': 'Data Leak — PII Redacted in Response',
             'unauthorized_access': 'Unauthorized Access',
             'policy_violation': 'Policy Violation',
@@ -150,51 +179,70 @@ def logs():
             'canary_token_triggered': 'Canary Triggers',
         }
 
-        # Add audit logs to the response
+        # Indexing for deduplication (Key: timestamp to-the-second + query snippet)
+        def get_log_key(log_dict):
+            # Firewall timestamps: 2026-04-13 17:43:20 (raw) or iso format
+            raw_ts = log_dict.get('timestamp', '')
+            ts = raw_ts[:19].replace('T', ' ') # normalize to YYYY-MM-DD HH:MM:SS
+            q = (log_dict.get('query') or '')[:50].strip().lower()
+            return f"{ts}_{q}"
+
+        indexed_logs = {}
+        for log in raw_firewall_logs:
+            log['type'] = 'firewall'
+            log['anomaly_score'] = None
+            indexed_logs[get_log_key(log)] = log
+
+        # 1. Process Audit Logs and overwrite/merge with Firewall logs
+        from backend.database.models import AnomalyScore
+        audit_ids = [log.audit_id for log in audit_logs]
+        score_map = {}
+        if audit_ids:
+            scores = AnomalyScore.query.filter(AnomalyScore.audit_id.in_(audit_ids)).all()
+            score_map = {s.audit_id: s for s in scores}
+
         for log in audit_logs:
             try:
-                username = log.user.username if log.user else 'system'
+                username = log.user.username if (log.user and hasattr(log.user, 'username')) else 'system'
             except Exception:
                 username = 'system'
-
-            action = log.action
+            
             meta = log.meta_data or {}
-            is_block = action in BLOCK_ACTIONS
-
-            # Build rich query field — use the actual query from metadata if available
-            query_text = meta.get('query') or meta.get('reason') or action
-
-            combined_logs.append({
+            # Use query from meta or action name
+            query_text = meta.get('query') or meta.get('reason') or log.action
+            
+            # Create a rich audit entry
+            entry = {
                 'id': log.audit_id,
                 'timestamp': log.created_at.isoformat(),
                 'query': query_text,
-                'decision': 'BLOCK' if is_block else 'ALLOW',
-                'reason': REASON_MAP.get(action, log.target_type or action),
-                'stopped_by': STOPPED_BY_MAP.get(action, username),
-                'action': action,
+                'decision': 'BLOCK' if log.action in BLOCK_ACTIONS else 'ALLOW',
+                'reason': REASON_MAP.get(log.action, log.target_type or log.action),
+                'stopped_by': STOPPED_BY_MAP.get(log.action, username),
+                'action': log.action,
                 'metadata': meta,
-                'type': 'audit'
-            })
+                'type': 'audit',
+                'anomaly_score': None
+            }
 
-        # Enrich anomalous audit events with BLOCK decision + reason
-        from backend.database.models import AnomalyScore
-        audit_ids = [log['id'] for log in combined_logs if log.get('type') == 'audit']
-        if audit_ids:
-            anomaly_rows = AnomalyScore.query.filter(
-                AnomalyScore.audit_id.in_(audit_ids),
-                AnomalyScore.is_anomaly == True,
-            ).all()
-            score_map = {row.audit_id: row for row in anomaly_rows}
-            for log in combined_logs:
-                if log.get('type') == 'audit' and log['id'] in score_map:
-                    s = score_map[log['id']]
-                    log['decision']  = 'BLOCK'
-                    log['reason']    = _anomaly_reason(s.anomaly_score)
-                    log['score']     = round(s.anomaly_score, 3)
-                    log['stopped_by'] = 'Anomaly Detection (ML)'
-                    if isinstance(log.get('metadata'), dict):
-                        log['metadata']['anomaly_score'] = s.anomaly_score
-                        log['metadata']['anomaly_type']  = s.anomaly_type
+            # Enrich with Anomaly Score
+            s = score_map.get(log.audit_id)
+            if s:
+                entry['anomaly_score'] = round(s.anomaly_score, 3)
+                entry['anomaly_type']  = s.anomaly_type
+                if s.is_anomaly:
+                    entry['decision']   = 'BLOCK'
+                    entry['reason']     = _anomaly_reason(s.anomaly_score)
+                    entry['stopped_by'] = 'Anomaly Detection (ML)'
+                    entry['is_anomaly'] = True
+
+            # Deduplicate: Audit entry takes priority over firewall entry
+            key = get_log_key(entry)
+            indexed_logs[key] = entry
+
+        # Sort combined logs by timestamp desc
+        combined_logs = list(indexed_logs.values())
+        combined_logs.sort(key=lambda x: x['timestamp'], reverse=True)
 
         return jsonify(combined_logs)
     except Exception as e:
@@ -385,5 +433,7 @@ def legacy_delete_document(filename):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
+    from backend.scripts.download_models import download_all
+    download_all()
     start_log_poller()
     app.run(host="0.0.0.0", port=5200, debug=False)

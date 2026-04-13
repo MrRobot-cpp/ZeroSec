@@ -74,16 +74,14 @@ export default function RagChat() {
             {messages.map((message, index) => (
               <div
                 key={index}
-                className={`flex ${
-                  message.role === "user" ? "justify-end" : "justify-start"
-                }`}
+                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
+                  }`}
               >
                 <div
-                  className={`max-w-3xl rounded-lg px-4 py-3 ${
-                    message.role === "user"
+                  className={`max-w-3xl rounded-lg px-4 py-3 ${message.role === "user"
                       ? "bg-blue-600 text-white"
                       : "bg-gray-800 text-gray-100"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-start space-x-2">
                     {message.role === "assistant" && (

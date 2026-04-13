@@ -122,7 +122,7 @@ export default function RedTeam() {
     setRunning(true);
     setLatestResult(null);
     try {
-      const res = await apiClient.post("/api/redteam/run", { category, notes, use_llm: useLlm });
+      const res = await apiClient.post("/api/redteam/run", { category, notes, use_llm: useLlm }, { timeout: 180000 });
       const data = await res.json();
       if (res.ok) {
         setLatestResult(data);
@@ -577,51 +577,7 @@ export default function RedTeam() {
           <div className="flex flex-col gap-5">
 
             {/* Latest run result banner */}
-            {latestResult && (
-              <div className={`border rounded-xl p-5 relative overflow-hidden ${parseFloat(latestResult.accuracy) >= 90 ? "bg-emerald-900/8 border-emerald-500/25" : parseFloat(latestResult.accuracy) >= 70 ? "bg-yellow-900/8 border-yellow-500/25" : "bg-red-900/8 border-red-500/25"}`}>
-                <div className={`absolute top-0 left-0 w-full h-0.5 ${parseFloat(latestResult.accuracy) >= 90 ? "bg-emerald-500/60" : parseFloat(latestResult.accuracy) >= 70 ? "bg-yellow-500/60" : "bg-red-500/60"}`} />
-
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-current rounded-full" />
-                    Operation #{latestResult.run_id} — Post-Action Report
-                  </h2>
-                  <div className={`text-xl font-mono font-bold ${getAccColor(latestResult.accuracy)}`}>
-                    {parseFloat(latestResult.accuracy).toFixed(1)}% ACCURACY
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  {[
-                    { label: "Total Payloads", value: latestResult.total, color: "text-gray-300" },
-                    { label: "Secured (Blocked)", value: latestResult.passed, color: "text-emerald-400" },
-                    { label: "Breaches (Missed)", value: latestResult.failed, color: "text-red-400" },
-                  ].map(({ label, value, color }) => (
-                    <div key={label} className="bg-[#0A0D12] rounded px-3 py-2 text-center border border-gray-800">
-                      <div className="text-[10px] uppercase text-gray-500 font-semibold tracking-widest mb-1">{label}</div>
-                      <div className={`text-lg font-mono font-bold ${color}`}>{value}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {latestResult.failures?.length > 0 && (
-                  <div>
-                    <h3 className="text-[10px] uppercase tracking-widest text-red-400 font-bold mb-2 border-b border-red-900/25 pb-1.5">Identified Vulnerabilities</h3>
-                    <div className="space-y-1.5 max-h-52 overflow-y-auto custom-scrollbar pr-1">
-                      {latestResult.failures.map((f, i) => (
-                        <div key={i} className="bg-[#0A0D12] border border-red-900/30 rounded px-3 py-2 flex flex-col font-mono gap-1 hover:border-red-500/25 transition-colors">
-                          <div className="flex items-center justify-between text-[10px] text-gray-500 uppercase tracking-wide">
-                            <span>Layer {f.difficulty} · <span className="text-gray-400">{f.attack_type.replace("_", " ")}</span></span>
-                            <span className="text-red-400 bg-red-900/15 px-1.5 py-0.5 rounded border border-red-900/40 text-[9px]">BYPASSED</span>
-                          </div>
-                          <span className="text-gray-300 text-[10px] leading-relaxed">{f.vector}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {latestResult && <RunResultBanner result={latestResult} />}
 
             {/* Historical Operations Log — dense table */}
             <div className="bg-[#131924] border border-gray-800/80 rounded-xl overflow-hidden">
@@ -648,20 +604,20 @@ export default function RedTeam() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/50 font-mono text-[10px]">
-                    {runs.map((run, i) => {
+                    {runs.map((run) => {
                       const acc = parseFloat(run.accuracy);
-                      const diff = run.category === "injection" ? "L5" : run.category === "pii" ? "L3" : `L${(i % 3) + 3}`;
-                      const isOdd = i % 2 !== 0;
+                      const catLabel = run.category === "all" ? "ALL" : run.category === "injection" ? "INJECTION" : "PII";
+                      const catColor = run.category === "injection" ? "text-indigo-400 border-indigo-700/50 bg-indigo-900/10" : run.category === "pii" ? "text-cyan-400 border-cyan-700/50 bg-cyan-900/10" : "text-gray-400 border-gray-700/60 bg-gray-800/50";
                       return (
                         <tr
                           key={run.run_id}
-                          className={`hover:bg-gray-800/40 transition-colors cursor-pointer ${isOdd ? "bg-[#0f141f]/50" : ""}`}
+                          className="hover:bg-gray-800/40 transition-colors cursor-pointer"
                         >
                           <td className="px-4 py-2 text-gray-400 font-semibold">#{run.run_id}</td>
                           <td className="px-4 py-2 text-gray-500">{new Date(run.started_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
-                          <td className="px-4 py-2 text-center text-gray-300">{(run.passed + run.failed) || run.total || "—"}</td>
+                          <td className="px-4 py-2 text-center text-gray-300">{run.total ?? (run.passed + run.failed) ?? "—"}</td>
                           <td className="px-4 py-2 text-center">
-                            <span className={run.failed > 0 ? "text-red-400 font-bold" : "text-gray-600"}>{run.failed}</span>
+                            <span className={run.failed > 0 ? "text-red-400 font-bold" : "text-gray-600"}>{run.failed ?? "—"}</span>
                           </td>
                           <td className="px-4 py-2 text-center">
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${acc >= 90 ? "border-emerald-500/25 text-emerald-400 bg-emerald-900/10" : acc >= 70 ? "border-yellow-500/25 text-yellow-400 bg-yellow-900/10" : "border-red-500/25 text-red-400 bg-red-900/10"}`}>
@@ -669,7 +625,7 @@ export default function RedTeam() {
                             </span>
                           </td>
                           <td className="px-4 py-2 text-right">
-                            <span className="text-gray-500 border border-gray-700/60 bg-gray-800/50 px-1.5 py-0.5 rounded uppercase tracking-wider text-[9px]">{diff}</span>
+                            <span className={`border px-1.5 py-0.5 rounded uppercase tracking-wider text-[9px] font-bold ${catColor}`}>{catLabel}</span>
                           </td>
                         </tr>
                       );
@@ -769,14 +725,189 @@ function AccuracyGauge({ value, previousValue }) {
   );
 }
 
-function MetricCard({ label, value, accent }) {
+// ---------------------------------------------------------------------------
+// RUN RESULT BANNER
+// ---------------------------------------------------------------------------
+function RunResultBanner({ result }) {
+  const pct = parseFloat(result.accuracy_pct) || 0;
+  const theme = pct >= 90
+    ? { border: "border-emerald-500/25", bg: "bg-emerald-900/8", bar: "bg-emerald-500/60", text: "text-emerald-400" }
+    : pct >= 70
+    ? { border: "border-yellow-500/25", bg: "bg-yellow-900/8", bar: "bg-yellow-500/60", text: "text-yellow-400" }
+    : { border: "border-red-500/25", bg: "bg-red-900/8", bar: "bg-red-500/60", text: "text-red-400" };
+
   return (
-    <div className="bg-[#0A0D12] border border-gray-800 rounded p-3 flex flex-col justify-between hover:border-gray-700 transition-colors cursor-default">
-      <span className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1.5">{label}</span>
-      <span className={`text-2xl font-bold font-mono tracking-tight ${accent}`}>{value}</span>
+    <div className={`border rounded-xl p-5 relative overflow-hidden ${theme.border} ${theme.bg}`}>
+      <div className={`absolute top-0 left-0 w-full h-0.5 ${theme.bar}`} />
+
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+          <span className="w-1.5 h-1.5 bg-current rounded-full" />
+          Operation #{result.run_id} — Post-Action Report
+        </h2>
+        <div className={`text-xl font-mono font-bold ${theme.text}`}>
+          {result.accuracy_pct} ACCURACY
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        {[
+          { label: "Total Payloads",    value: result.total,  color: "text-gray-300" },
+          { label: "Secured (Blocked)", value: result.passed, color: "text-emerald-400" },
+          { label: "Breaches (Missed)", value: result.failed, color: "text-red-400" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-[#0A0D12] rounded px-3 py-2 text-center border border-gray-800">
+            <div className="text-[10px] uppercase text-gray-500 font-semibold tracking-widest mb-1">{label}</div>
+            <div className={`text-lg font-mono font-bold ${color}`}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {result.anomaly_simulation && (
+        <AnomalySimPanel sim={result.anomaly_simulation} />
+      )}
+
+      {result.failures?.length > 0 && (
+        <div>
+          <h3 className="text-[10px] uppercase tracking-widest text-red-400 font-bold mb-2 border-b border-red-900/25 pb-1.5 mt-3">Identified Vulnerabilities</h3>
+          <div className="space-y-1.5 max-h-52 overflow-y-auto custom-scrollbar pr-1">
+            {result.failures.map((f, i) => (
+              <div key={i} className="bg-[#0A0D12] border border-red-900/30 rounded px-3 py-2 flex flex-col font-mono gap-1 hover:border-red-500/25 transition-colors">
+                <div className="flex items-center justify-between text-[10px] text-gray-500 uppercase tracking-wide">
+                  <span>Layer {f.difficulty} · <span className="text-gray-400">{f.attack_type.replace("_", " ")}</span></span>
+                  <span className="text-red-400 bg-red-900/15 px-1.5 py-0.5 rounded border border-red-900/40 text-[9px]">BYPASSED</span>
+                </div>
+                <span className="text-gray-300 text-[10px] leading-relaxed">{f.vector}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// ANOMALY SIMULATION PANEL
+// Shows whether the behavioral anomaly layer would have caught the red-team
+// burst — even when the firewall missed individual payloads.
+// ---------------------------------------------------------------------------
+function AnomalySimPanel({ sim }) {
+  const noModel  = sim.verdict === "NO_MODEL" || sim.verdict === "ERROR";
+  const caught   = sim.verdict === "CAUGHT";
+  const missed   = sim.verdict === "MISSED";
+
+  const borderCls = noModel
+    ? "border-gray-700/50"
+    : caught
+    ? "border-emerald-500/25"
+    : "border-red-500/25";
+
+  const bgCls = noModel
+    ? "bg-gray-900/40"
+    : caught
+    ? "bg-emerald-900/8"
+    : "bg-red-900/8";
+
+  const topBarCls = noModel
+    ? "bg-gray-600/40"
+    : caught
+    ? "bg-emerald-500/50"
+    : "bg-red-500/50";
+
+  const verdictColor = noModel
+    ? "text-gray-400"
+    : caught
+    ? "text-emerald-400"
+    : "text-red-400";
+
+  const verdictLabel = noModel
+    ? "NO MODEL"
+    : caught
+    ? "BEHAVIORALLY CAUGHT"
+    : "BEHAVIORALLY MISSED";
+
+  return (
+    <div className={`border rounded-lg p-3.5 relative overflow-hidden mt-3 ${borderCls} ${bgCls}`}>
+      <div className={`absolute top-0 left-0 w-full h-0.5 ${topBarCls}`} />
+
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {/* Behavioral anomaly icon */}
+          <svg className={`w-3.5 h-3.5 ${verdictColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
+          </svg>
+          <span className="text-[10px] uppercase tracking-widest text-gray-500 font-bold">Layer 2 — Behavioral Anomaly</span>
+        </div>
+        <span className={`text-[10px] font-bold font-mono uppercase tracking-widest px-2 py-0.5 rounded border ${
+          noModel  ? "text-gray-500 border-gray-700 bg-gray-800/50" :
+          caught   ? "text-emerald-400 border-emerald-500/25 bg-emerald-900/15" :
+                     "text-red-400 border-red-500/25 bg-red-900/15"
+        }`}>
+          {verdictLabel}
+        </span>
+      </div>
+
+      {noModel ? (
+        <p className="text-[10px] text-gray-500 font-mono leading-relaxed">
+          {sim.note || sim.error || "Anomaly model not trained. Run POST /api/anomaly/train first."}
+        </p>
+      ) : (
+        <div className="grid grid-cols-4 gap-2">
+          {/* Events simulated */}
+          <div className="bg-[#0A0D12] border border-gray-800 rounded px-2.5 py-2 text-center">
+            <div className="text-[9px] uppercase tracking-wider text-gray-600 font-semibold mb-0.5">Simulated</div>
+            <div className="text-base font-mono font-bold text-gray-300">{sim.events_simulated}</div>
+            <div className="text-[9px] text-gray-600 font-mono">events</div>
+          </div>
+          {/* Anomalies triggered */}
+          <div className="bg-[#0A0D12] border border-gray-800 rounded px-2.5 py-2 text-center">
+            <div className="text-[9px] uppercase tracking-wider text-gray-600 font-semibold mb-0.5">Triggers</div>
+            <div className={`text-base font-mono font-bold ${sim.anomalies_triggered > 0 ? "text-emerald-400" : "text-gray-500"}`}>{sim.anomalies_triggered}</div>
+            <div className="text-[9px] text-gray-600 font-mono">anomalies</div>
+          </div>
+          {/* Peak score */}
+          <div className="bg-[#0A0D12] border border-gray-800 rounded px-2.5 py-2 text-center">
+            <div className="text-[9px] uppercase tracking-wider text-gray-600 font-semibold mb-0.5">Peak Score</div>
+            <div className={`text-base font-mono font-bold ${
+              sim.peak_score >= 0.9 ? "text-red-400" : sim.peak_score >= 0.6 ? "text-yellow-400" : "text-gray-500"
+            }`}>{sim.peak_score ? (sim.peak_score * 100).toFixed(0) + "%" : "—"}</div>
+            <div className="text-[9px] text-gray-600 font-mono">confidence</div>
+          </div>
+          {/* Session flagged */}
+          <div className="bg-[#0A0D12] border border-gray-800 rounded px-2.5 py-2 text-center">
+            <div className="text-[9px] uppercase tracking-wider text-gray-600 font-semibold mb-0.5">Session</div>
+            <div className={`text-base font-mono font-bold ${sim.session_flagged ? "text-emerald-400" : "text-red-400"}`}>
+              {sim.session_flagged ? "FLAGGED" : "CLEAN"}
+            </div>
+            <div className="text-[9px] text-gray-600 font-mono">status</div>
+          </div>
+        </div>
+      )}
+
+      {/* Anomaly types detected */}
+      {sim.anomaly_types?.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {sim.anomaly_types.map((t, i) => (
+            <span key={i} className="text-[9px] font-mono text-yellow-400 bg-yellow-900/10 border border-yellow-900/30 px-1.5 py-0.5 rounded">{t}</span>
+          ))}
+        </div>
+      )}
+
+      {/* Explanation footer */}
+      <p className="text-[9px] text-gray-600 font-mono mt-2 leading-relaxed">
+        {caught
+          ? `Behavioral burst detected — ${sim.events_simulated} events in ~${(sim.events_simulated * 0.5).toFixed(0)}s triggered anomaly detection even if individual payloads bypassed the firewall.`
+          : missed
+          ? "Session not flagged by behavioral model. Attacker could iterate through payloads without triggering UEBA. Consider lowering burst_score threshold or retraining on adversarial data."
+          : null
+        }
+      </p>
+    </div>
+  );
+}
+
 
 function Spinner() {
   return (

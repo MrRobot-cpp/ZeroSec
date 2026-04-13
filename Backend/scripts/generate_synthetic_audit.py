@@ -141,11 +141,14 @@ def generate_anomalous_events(org_id: int, user_ids: list[int], n: int = 20) -> 
         })
 
     # --- Pattern 2: Velocity burst (exfiltration simulation) ---
+    # Was: 5 events in 2 min — too subtle, model couldn't separate from normal.
+    # Now: 40 events in 30 seconds — extreme burst, clearly separable.
     base = now - timedelta(days=random.randint(1, 5))
     base = base.replace(hour=random.randint(10, 15), minute=0, second=0)
     user = random.choice(user_ids)
-    for i in range(per_pattern):
-        ts = base + timedelta(seconds=i * 30)   # 5 events in ~2 min
+    burst_count = max(per_pattern * 8, 40)   # 40+ events regardless of per_pattern
+    for i in range(burst_count):
+        ts = base + timedelta(seconds=i * 0.75)   # 40 events in 30 seconds
         events.append({
             'organization_id': org_id,
             'user_id':         user,

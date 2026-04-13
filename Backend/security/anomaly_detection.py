@@ -41,10 +41,16 @@ _MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
 _PICKLE_PATH = _MODELS_DIR / "audit_anomaly.pkl"
 
 # Detection thresholds
-ANOMALY_THRESHOLD   = 0.60
+ANOMALY_THRESHOLD   = 0.45   # lowered from 0.60 — Z-Score AUC=0.73 but F1=0 at 0.60
 DEVIATION_THRESHOLD = 2.0
 MAX_WINDOW_SIZE     = 100
 BASELINE_ALPHA      = 0.05   # exponential smoothing rate
+
+# Hard rule-based trigger thresholds (fire before ML score is checked)
+RULE_FREQ_THRESHOLD   = 30.0  # events/min — no legitimate user exceeds this
+RULE_FAILED_THRESHOLD = 0.50  # failed_ratio — brute force indicator
+RULE_BURST_THRESHOLD  = 0.60  # burst_score — rapid sequential probing
+RULE_MIN_EVENTS       = 10    # minimum window size before rules apply
 
 # Action → severity mapping
 _ACTION_SEVERITY: dict[str, str] = {
@@ -173,18 +179,22 @@ class AuditFeatureEngineer:
 
     @staticmethod
     def _burst_score(events: list) -> float:
+        """
+        Sliding-window count of max events within any 60-second span.
+        O(n) using two pointers — does NOT assume timestamps are sorted,
+        sorts a copy instead to handle out-of-order delivery from daemon threads.
+        """
         if len(events) < 2:
             return 0.0
+        timestamps = sorted(e.timestamp for e in events)
+        n = len(timestamps)
         max_count = 1
-        for i, e in enumerate(events):
-            count = 1
-            for j in range(i + 1, len(events)):
-                if (events[j].timestamp - e.timestamp).total_seconds() <= 60:
-                    count += 1
-                else:
-                    break
-            max_count = max(max_count, count)
-        return max_count / len(events)
+        left = 0
+        for right in range(n):
+            while (timestamps[right] - timestamps[left]).total_seconds() > 60:
+                left += 1
+            max_count = max(max_count, right - left + 1)
+        return max_count / n
 
 
 # ---------------------------------------------------------------------------
@@ -285,11 +295,17 @@ class AnomalyDetector:
             self._window.append(event)
             window_snapshot = deque(self._window)
 
-        if not self.is_ready():
-            return
+        features     = self._engineer.transform(window_snapshot)
+        rule_score   = self._rule_based_score(features, len(window_snapshot))
 
-        features = self._engineer.transform(window_snapshot)
-        score     = self._score_features(features)
+        if rule_score > 0:
+            # Hard rule fired — skip ML entirely
+            score = rule_score
+        elif not self.is_ready():
+            return
+        else:
+            score = self._score_features(features)
+
         deviation = self.calculateDeviation(features, self.getCurrentBaseline())
 
         if score > self.ANOMALY_THRESHOLD or deviation > self.DEVIATION_THRESHOLD:
@@ -325,8 +341,14 @@ class AnomalyDetector:
             sim_window.append(evt)
             if len(sim_window) < 2:
                 continue
-            features  = self._engineer.transform(sim_window)
-            score     = self._score_features(features)
+            features   = self._engineer.transform(sim_window)
+            rule_score = self._rule_based_score(features, len(sim_window))
+            if rule_score > 0:
+                score = rule_score
+            elif self.is_ready():
+                score = self._score_features(features)
+            else:
+                score = 0.0
             deviation = self.calculateDeviation(features, self.getCurrentBaseline())
             if score > self.ANOMALY_THRESHOLD or deviation > self.DEVIATION_THRESHOLD:
                 anomaly_type = self.determineAnomalyType(evt, features)
@@ -351,6 +373,30 @@ class AnomalyDetector:
     def calculateDeviation(self, features: np.ndarray, baseline: np.ndarray) -> float:
         """Euclidean distance from baseline."""
         return float(np.linalg.norm(features - baseline))
+
+    def _rule_based_score(self, features: np.ndarray, n_events: int) -> float:
+        """
+        Hard rule layer — returns 1.0 if any obvious attack signal fires,
+        0.0 otherwise. Runs before the ML model so that clear-cut cases
+        are never missed due to poor model calibration.
+
+        Rules (each independently sufficient):
+          - event_frequency > 30/min  (extreme burst)
+          - failed_ratio > 0.50 with n >= 10  (brute force / injection probing)
+          - burst_score > 0.60  (tight clustering of events)
+        """
+        if n_events < RULE_MIN_EVENTS:
+            return 0.0
+        freq         = features[0]
+        failed_ratio = features[4]
+        burst_score  = features[5]
+        if freq > RULE_FREQ_THRESHOLD:
+            return 1.0
+        if failed_ratio > RULE_FAILED_THRESHOLD:
+            return 1.0
+        if burst_score > RULE_BURST_THRESHOLD:
+            return 1.0
+        return 0.0
 
     def isTruePositive(self, anomaly: Anomaly) -> bool:
         """
@@ -597,6 +643,12 @@ class AnomalyDetector:
         return scores
 
     def is_ready(self) -> bool:
+        if self._model is not None:
+            return True
+        # Pickle may have been written after server start (e.g. by a bootstrap script).
+        # Try loading it now rather than requiring a server restart.
+        if _PICKLE_PATH.exists():
+            self._load_model()
         return self._model is not None
 
     def get_status(self) -> dict:

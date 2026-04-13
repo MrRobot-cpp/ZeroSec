@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from backend.security.red_team.attack_generator import AttackGenerator, Attack
@@ -125,6 +125,94 @@ def _get_missed_attacks(category: str, limit: int = 40) -> list[Attack]:
     return attacks
 
 
+def _simulate_anomaly_detection(
+    attacks: list[Attack],
+    results: list[dict],
+    started_at: datetime,
+    run_id: int,
+) -> dict:
+    """
+    Simulate the behavioral anomaly detector over a red-team burst.
+
+    Converts attack results into synthetic SecurityEvent dicts spaced 0.5 s
+    apart (realistic attack pace), then runs them through
+    AnomalyDetector.detectAnomalies() to check whether the behavioral layer
+    would have flagged the session — even when individual payloads bypassed
+    the firewall.
+
+    Returns a dict that is included in the run summary as 'anomaly_simulation'.
+    Never writes to AuditLog or AnomalyScore — read-only simulation.
+    """
+    try:
+        from backend.security.anomaly_detection import get_detector
+        detector = get_detector()
+
+        if not detector.is_ready():
+            return {
+                "model_ready": False,
+                "verdict": "NO_MODEL",
+                "note": "Train the anomaly model first via POST /api/anomaly/train",
+            }
+
+        # Build a synthetic event stream: one audit-log-shaped dict per attack,
+        # spaced 500 ms apart starting from run start time.
+        # Missed attacks (ALLOW) look like normal rag_query events to the audit
+        # system — that's the realistic threat scenario.
+        ts_base = started_at if started_at.tzinfo else started_at.replace(tzinfo=timezone.utc)
+        events = []
+        for i, (attack, result) in enumerate(zip(attacks, results)):
+            decision = result.get("firewall_decision", "ALLOW")
+            action   = "firewall_injection_block" if decision in ("BLOCK", "FLAG") else "rag_query"
+            event_ts = ts_base + timedelta(milliseconds=i * 500)
+
+            events.append({
+                "id":              f"rt_{run_id}_{i}",
+                "audit_id":        i,
+                "action":          action,
+                "eventType":       action,
+                "userId":          -1,   # synthetic test actor
+                "user_id":         -1,
+                "organizationId":  1,
+                "organization_id": 1,
+                "timestamp":       event_ts.isoformat(),
+                "created_at":      event_ts.isoformat(),
+                "meta_data":       {
+                    "red_team":    True,
+                    "attack_type": attack.attack_type,
+                    "difficulty":  attack.difficulty,
+                },
+            })
+
+        anomalies = detector.detectAnomalies(events)
+
+        peak_score    = max((a.confidence for a in anomalies), default=0.0)
+        anomaly_types = list({a.type for a in anomalies})
+
+        _log.info(
+            "[redteam] Anomaly simulation: %d events → %d anomalies triggered (peak=%.3f) verdict=%s",
+            len(events), len(anomalies), peak_score,
+            "CAUGHT" if anomalies else "MISSED",
+        )
+
+        return {
+            "model_ready":        True,
+            "events_simulated":   len(events),
+            "anomalies_triggered": len(anomalies),
+            "session_flagged":    len(anomalies) > 0,
+            "peak_score":         round(peak_score, 3),
+            "anomaly_types":      anomaly_types,
+            "verdict":            "CAUGHT" if anomalies else "MISSED",
+        }
+
+    except Exception as exc:
+        _log.warning("[redteam] Anomaly simulation failed: %s", exc)
+        return {
+            "model_ready": False,
+            "verdict": "ERROR",
+            "error": str(exc),
+        }
+
+
 def run_test(
     category: str = "all",
     triggered_by: str = "manual",
@@ -190,9 +278,11 @@ def run_test(
     passed_count  = 0
     failed_count  = 0
     failures      = []
+    all_results   = []   # collected for post-run anomaly simulation
 
     for attack in attacks:
         result = _run_single(attack)
+        all_results.append(result)
 
         log_entry = TestRunLog(
             test_run_id       = run.test_run_id,
@@ -236,21 +326,25 @@ def run_test(
     # Layer-level breakdown
     layer_stats = _compute_layer_stats(attacks, run.test_run_id)
 
+    # Behavioral anomaly simulation — check if detector would flag this burst
+    anomaly_sim = _simulate_anomaly_detection(attacks, all_results, started_at, run.test_run_id)
+
     return {
-        "run_id":        run.test_run_id,
-        "run_uuid":      run_uuid,
-        "category":      category,
-        "total":         len(attacks),
-        "passed":        passed_count,
-        "failed":        failed_count,
-        "accuracy":      round(accuracy, 4),
-        "accuracy_pct":  f"{accuracy:.1%}",
-        "failures":      failures,
-        "layer_stats":   layer_stats,
-        "started_at":    started_at.isoformat(),
-        "ended_at":      run.ended_at.isoformat(),
-        "replay_count":  len(missed_attacks),
-        "llm_count":     len(llm_attacks),
+        "run_id":             run.test_run_id,
+        "run_uuid":           run_uuid,
+        "category":           category,
+        "total":              len(attacks),
+        "passed":             passed_count,
+        "failed":             failed_count,
+        "accuracy":           round(accuracy, 4),
+        "accuracy_pct":       f"{accuracy:.1%}",
+        "failures":           failures,
+        "layer_stats":        layer_stats,
+        "anomaly_simulation": anomaly_sim,
+        "started_at":         started_at.isoformat(),
+        "ended_at":           run.ended_at.isoformat(),
+        "replay_count":       len(missed_attacks),
+        "llm_count":          len(llm_attacks),
     }
 
 

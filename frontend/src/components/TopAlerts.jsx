@@ -76,10 +76,15 @@ export default function TopAlerts({ logs }) {
             const style = CATEGORY_STYLE[cat];
             const label = CATEGORY_LABEL[cat];
             const score = typeof log.anomaly_score === "number" ? log.anomaly_score : null;
+            // Build a stable unique key: prefer DB id, fall back to timestamp+query
+            // Never use idx alone — it causes key collisions on re-render
+            const key = log.id != null
+              ? `db-${log.id}`
+              : `fw-${log.timestamp || idx}-${(log.query || "").slice(0, 20)}`;
 
             return (
               <div
-                key={log.id || idx}
+                key={key}
                 className={`p-2 rounded-lg border ${style}`}
               >
                 <div className="flex justify-between items-start mb-1 gap-2">

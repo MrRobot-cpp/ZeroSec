@@ -4,7 +4,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 
 export default function PoliciesPage() {
   return (
-    <ProtectedRoute requiredPermission="update">
+    <ProtectedRoute requiredPermission="policy_manage">
       <Policies />
     </ProtectedRoute>
   );

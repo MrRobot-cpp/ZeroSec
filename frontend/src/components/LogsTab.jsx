@@ -38,22 +38,22 @@ export default function LogsTab({ logsData }) {
     }
     if (score >= 0.75 || isAnomaly) {
       return (
-        <span className="px-2 py-1 rounded text-xs font-bold bg-red-900/60 text-red-300 border border-red-700">
-          {score.toFixed(2)} HIGH
-        </span>
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs font-mono font-semibold text-red-300">{score.toFixed(2)}</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/60 text-red-300 border border-red-700 leading-none">HIGH</span>
+        </div>
       );
     }
     if (score >= 0.45) {
       return (
-        <span className="px-2 py-1 rounded text-xs font-medium bg-orange-900/50 text-orange-300 border border-orange-700">
-          {score.toFixed(2)} MED
-        </span>
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-xs font-mono font-semibold text-orange-300">{score.toFixed(2)}</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-900/50 text-orange-300 border border-orange-700 leading-none">MED</span>
+        </div>
       );
     }
     return (
-      <span className="px-2 py-1 rounded text-xs text-gray-400">
-        {score.toFixed(2)}
-      </span>
+      <span className="text-xs font-mono text-gray-400">{score.toFixed(2)}</span>
     );
   };
 
@@ -196,7 +196,7 @@ export default function LogsTab({ logsData }) {
                     <td className="py-4 px-6 text-gray-300 text-sm">
                       {log.stopped_by || "N/A"}
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="py-4 px-6 text-center">
                       {getAnomalyBadge(log.anomaly_score, log.is_anomaly)}
                     </td>
                     <td className="py-4 px-6">

@@ -148,10 +148,30 @@ def logs():
         except Exception:
             pass
 
-        # Get audit logs filtered by organization
-        audit_logs = AuditLog.query.filter_by(
+        # Get recent audit logs
+        recent_audit_logs = AuditLog.query.filter_by(
             organization_id=organization_id
         ).order_by(AuditLog.created_at.desc()).limit(100).all()
+
+        recent_ids = {log.audit_id for log in recent_audit_logs}
+
+        # Also fetch any audit logs that have anomaly detections but are older
+        # than the last 100 — they must always be visible in the security log.
+        from backend.database.models import AnomalyScore
+        flagged_audit_ids = [
+            r.audit_id for r in
+            AnomalyScore.query.filter(
+                AnomalyScore.is_anomaly == True,
+                AnomalyScore.organization_id == organization_id,
+            ).with_entities(AnomalyScore.audit_id).all()
+            if r.audit_id not in recent_ids
+        ]
+        older_flagged_logs = (
+            AuditLog.query.filter(AuditLog.audit_id.in_(flagged_audit_ids)).all()
+            if flagged_audit_ids else []
+        )
+
+        audit_logs = recent_audit_logs + older_flagged_logs
 
         # Get firewall logs first to build the base list
         raw_firewall_logs = get_logs()
@@ -194,7 +214,6 @@ def logs():
             indexed_logs[get_log_key(log)] = log
 
         # 1. Process Audit Logs and overwrite/merge with Firewall logs
-        from backend.database.models import AnomalyScore
         audit_ids = [log.audit_id for log in audit_logs]
         score_map = {}
         if audit_ids:
@@ -202,15 +221,21 @@ def logs():
             score_map = {s.audit_id: s for s in scores}
 
         for log in audit_logs:
+            # Skip system-internal anomaly bookkeeping events — they are audit
+            # trail entries, not external threats, and should not appear as
+            # "stopped" rows in the security log.
+            if log.action == 'anomaly_detected':
+                continue
+
             try:
                 username = log.user.username if (log.user and hasattr(log.user, 'username')) else 'system'
             except Exception:
                 username = 'system'
-            
+
             meta = log.meta_data or {}
             # Use query from meta or action name
             query_text = meta.get('query') or meta.get('reason') or log.action
-            
+
             # Create a rich audit entry
             entry = {
                 'id': log.audit_id,
@@ -225,16 +250,16 @@ def logs():
                 'anomaly_score': None
             }
 
-            # Enrich with Anomaly Score
+            # Enrich with Anomaly Score — only for genuinely anomalous events,
+            # not for system-generated scoring artifacts (score=0.0 normal activity).
             s = score_map.get(log.audit_id)
-            if s:
+            if s and s.is_anomaly and s.anomaly_score > 0.0:
                 entry['anomaly_score'] = round(s.anomaly_score, 3)
                 entry['anomaly_type']  = s.anomaly_type
-                if s.is_anomaly:
-                    entry['decision']   = 'BLOCK'
-                    entry['reason']     = _anomaly_reason(s.anomaly_score)
-                    entry['stopped_by'] = 'Anomaly Detection (ML)'
-                    entry['is_anomaly'] = True
+                entry['decision']      = 'BLOCK'
+                entry['reason']        = _anomaly_reason(s.anomaly_score)
+                entry['stopped_by']    = 'Anomaly Detection (ML)'
+                entry['is_anomaly']    = True
 
             # Deduplicate: Audit entry takes priority over firewall entry
             key = get_log_key(entry)

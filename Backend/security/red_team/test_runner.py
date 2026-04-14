@@ -146,18 +146,14 @@ def _simulate_anomaly_detection(
     try:
         from backend.security.anomaly_detection import get_detector
         detector = get_detector()
-
-        if not detector.is_ready():
-            return {
-                "model_ready": False,
-                "verdict": "NO_MODEL",
-                "note": "Train the anomaly model first via POST /api/anomaly/train",
-            }
+        model_ready = detector.is_ready()
 
         # Build a synthetic event stream: one audit-log-shaped dict per attack,
         # spaced 500 ms apart starting from run start time.
-        # Missed attacks (ALLOW) look like normal rag_query events to the audit
-        # system — that's the realistic threat scenario.
+        # Blocked attacks become "firewall_injection_block" events — the high
+        # failed-action ratio rule will catch a session with many blocks.
+        # Passed attacks become "rag_query" — the velocity burst rule will catch
+        # sessions that produced 20+ events within any 60-second window.
         ts_base = started_at if started_at.tzinfo else started_at.replace(tzinfo=timezone.utc)
         events = []
         for i, (attack, result) in enumerate(zip(attacks, results)):
@@ -183,25 +179,30 @@ def _simulate_anomaly_detection(
                 },
             })
 
+        # detectAnomalies() runs rule-based checks (burst + failed-ratio) even
+        # without a trained ML model, so we always call it.
         anomalies = detector.detectAnomalies(events)
 
         peak_score    = max((a.confidence for a in anomalies), default=0.0)
         anomaly_types = list({a.type for a in anomalies})
+        caught        = len(anomalies) > 0
 
         _log.info(
-            "[redteam] Anomaly simulation: %d events → %d anomalies triggered (peak=%.3f) verdict=%s",
+            "[redteam] Anomaly simulation: %d events → %d anomalies triggered "
+            "(peak=%.3f, model=%s) verdict=%s",
             len(events), len(anomalies), peak_score,
-            "CAUGHT" if anomalies else "MISSED",
+            "loaded" if model_ready else "rules-only",
+            "CAUGHT" if caught else "MISSED",
         )
 
         return {
-            "model_ready":        True,
-            "events_simulated":   len(events),
+            "model_ready":         model_ready,
+            "events_simulated":    len(events),
             "anomalies_triggered": len(anomalies),
-            "session_flagged":    len(anomalies) > 0,
-            "peak_score":         round(peak_score, 3),
-            "anomaly_types":      anomaly_types,
-            "verdict":            "CAUGHT" if anomalies else "MISSED",
+            "session_flagged":     caught,
+            "peak_score":          round(peak_score, 3),
+            "anomaly_types":       anomaly_types,
+            "verdict":             "CAUGHT" if caught else "MISSED",
         }
 
     except Exception as exc:

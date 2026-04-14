@@ -851,7 +851,7 @@ function AnomalySimPanel({ sim }) {
 
       {noModel ? (
         <p className="text-[10px] text-gray-500 font-mono leading-relaxed">
-          {sim.note || sim.error || "Anomaly model not trained. Run POST /api/anomaly/train first."}
+          {sim.error || "Anomaly simulation encountered an error. Check backend logs."}
         </p>
       ) : (
         <div className="grid grid-cols-4 gap-2">
@@ -898,9 +898,9 @@ function AnomalySimPanel({ sim }) {
       {/* Explanation footer */}
       <p className="text-[9px] text-gray-600 font-mono mt-2 leading-relaxed">
         {caught
-          ? `Behavioral burst detected — ${sim.events_simulated} events in ~${(sim.events_simulated * 0.5).toFixed(0)}s triggered anomaly detection even if individual payloads bypassed the firewall.`
+          ? `Session flagged by ${sim.model_ready ? "NLP model + rule engine" : "rule engine (no model)"} — ${sim.events_simulated} events in ~${(sim.events_simulated * 0.5).toFixed(0)}s. Individual payload bypass does not guarantee session-level stealth.`
           : missed
-          ? "Session not flagged by behavioral model. Attacker could iterate through payloads without triggering UEBA. Consider lowering burst_score threshold or retraining on adversarial data."
+          ? `Session not flagged. ${sim.model_ready ? "NLP model + rules" : "Rules only (no trained model)"} found no anomalous signal. Consider running POST /api/anomaly/train to load the NLP model.`
           : null
         }
       </p>

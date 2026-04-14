@@ -15,6 +15,7 @@ import logging
 import pickle
 import threading
 import json
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -100,14 +101,21 @@ class AnomalyDetector:
          This matches how audit_anomaly.pkl was actually trained (UEBA notebook).
     """
 
+    # Sliding window: last N events used for real-time UEBA scoring
+    _WINDOW_SIZE    = 50
+    _WINDOW_MIN     = 5    # minimum events before scoring fires
+    _ALERT_COOLDOWN = 60   # seconds between repeated alerts for the same session
+
     def __init__(self):
         self._model      = None
         self._vectorizer = None   # present only in TF-IDF pickles
         self._scaler     = None   # present in UEBA (feature-based) pickles
         self._baseline   = None   # numpy array of baseline feature means
         self._model_name: Optional[str] = None
-        self._lock = threading.Lock()
-        self._app  = None
+        self._lock          = threading.Lock()
+        self._window        = deque(maxlen=self._WINDOW_SIZE)  # rolling event window
+        self._last_alert_at: Optional[datetime] = None          # cooldown tracker
+        self._app           = None
         self._status: dict = {
             'model_ready': False,
             'trained_on': 0,
@@ -125,34 +133,58 @@ class AnomalyDetector:
             logger.error("AnomalyDetector.on_security_event_dict: %s", exc)
 
     def onSecurityEvent(self, event: SecurityEvent) -> None:
-        """Process one event: score log text and alert if anomalous."""
-        # Avoid infinite loops from own anomaly events
+        """
+        Process one event in real-time.
+
+        Adds the event to a rolling window, then scores the window using the
+        UEBA feature path (scaler + IsolationForest) when enough events have
+        accumulated. Only writes to AnomalyScore when a genuine anomaly fires.
+        """
+        # Avoid infinite loops from own anomaly bookkeeping events
         if event.eventType == 'anomaly_detected':
+            return
+
+        # Convert SecurityEvent to the dict format _score_batch_features expects
+        event_dict = {
+            'action':    event.eventType,
+            'user_id':   event.userId,
+            'timestamp': event.timestamp.isoformat() if isinstance(event.timestamp, datetime) else str(event.timestamp),
+            'meta_data': event.details,
+        }
+
+        with self._lock:
+            self._window.append(event_dict)
+            window_snapshot = list(self._window)
+
+        # Need minimum events for meaningful window statistics
+        if len(window_snapshot) < self._WINDOW_MIN:
             return
 
         if not self.is_ready():
             return
 
-        # Prepare text representation for the model
-        # We combine the action and the stringified metadata
-        details_str = json.dumps(event.details)
-        log_text = f"{event.eventType}: {details_str}".lower()
-
-        score = self._score_features(log_text)
+        score = self._score_batch_features(window_snapshot)
 
         if score > ANOMALY_THRESHOLD:
-            anomaly_type = self.determineAnomalyType(event, log_text)
+            now = datetime.now(timezone.utc)
+            # Cooldown: don't fire more than once per _ALERT_COOLDOWN seconds.
+            # This prevents 30 identical alert rows for a single burst session.
+            with self._lock:
+                if (self._last_alert_at is not None and
+                        (now - self._last_alert_at).total_seconds() < self._ALERT_COOLDOWN):
+                    return
+                self._last_alert_at = now
+
+            anomaly_type = self.determineAnomalyType(event, event.eventType.lower())
             anomaly = Anomaly(
                 type=anomaly_type,
                 confidence=score,
-                events=[event],  # Current event responsible for trigger
-                timestamp=datetime.now(timezone.utc),
+                events=[event],
+                timestamp=now,
             )
             self.sendAlert(anomaly)
             self._write_anomaly_score(event, score, anomaly_type, is_anomaly=True)
-        else:
-            # Still write the score for dashboard visibility
-            self._write_anomaly_score(event, score, "Normal activity", is_anomaly=False)
+        # Do NOT write 0.0 scores — they bloat the DB and create noise in the UI.
 
     def _score_features(self, text: str) -> float:
         """Pass text through TF-IDF and get anomaly score from the model."""

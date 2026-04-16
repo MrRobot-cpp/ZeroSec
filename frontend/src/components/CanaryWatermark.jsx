@@ -1,6 +1,7 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { uploadDocument } from "../services/documentService";
+import apiClient from "../services/apiClient";
 
 const HISTORY_KEY = 'canary_watermark_history';
 
@@ -22,6 +23,8 @@ export default function CanaryWatermark({ fileInputRef, setUploading, uploading 
   const [progress, setProgress] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [history, setHistory] = useState([]);
+  const [tokenStatus, setTokenStatus] = useState({}); // { [tokenHash]: { triggered, source_ip, geo_country, geo_city, triggered_at, checking } }
+  const [forensicsModal, setForensicsModal] = useState(null); // forensics object to show in modal
 
   // Load history on client only
   useEffect(() => {
@@ -87,15 +90,28 @@ export default function CanaryWatermark({ fileInputRef, setUploading, uploading 
               console.log('Fallback headers:', {canaryId, outputPath, hash, filename});
             }
             
+            let tokenHash = '';
+            let pingUrl = '';
+            if (metaHeader) {
+              try {
+                const meta = JSON.parse(metaHeader);
+                tokenHash = meta.token_hash || '';
+                pingUrl = meta.ping_url || '';
+              } catch {}
+            }
+
             const newEntry = {
               canaryId,
               outputPath,
               filename,
               hash,
+              tokenHash,
+              pingUrl,
               date: new Date().toISOString(),
               original: file.name,
               size: file.size,
-              type: file.type
+              type: file.type,
+              triggered: false,
             };
             console.log('Saving to history:', newEntry);
             saveHistory(newEntry);
@@ -160,6 +176,54 @@ export default function CanaryWatermark({ fileInputRef, setUploading, uploading 
       setProgress(0);
     }
   };
+
+  const handleFireInBrowser = (entry) => {
+    if (!entry.pingUrl) {
+      setUploadError('No ping URL stored for this token. Re-watermark the file to generate one.');
+      return;
+    }
+    // Open the ping URL in a new tab — browser GETs it, canary fires server-side
+    window.open(entry.pingUrl, '_blank', 'noopener');
+    // After a short delay, auto-check the status
+    setTimeout(() => handleCheckStatus(entry), 1500);
+  };
+
+  const handleCheckStatus = useCallback(async (entry) => {
+    if (!entry.tokenHash) return;
+    setTokenStatus(prev => ({ ...prev, [entry.tokenHash]: { ...prev[entry.tokenHash], checking: true } }));
+    try {
+      const resp = await apiClient.get('/api/canary/tokens');
+      if (!resp.ok) throw new Error('Failed to fetch tokens');
+      const data = await resp.json();
+      const match = (data.tokens || []).find(t => t.token_hash === entry.tokenHash);
+      if (match && match.is_triggered) {
+        // Fetch full forensics
+        const fResp = await apiClient.get(`/api/canary/tokens/${match.canary_token_id}/forensics`);
+        if (fResp.ok) {
+          const forensics = await fResp.json();
+          setTokenStatus(prev => ({
+            ...prev,
+            [entry.tokenHash]: { ...forensics, checking: false }
+          }));
+        } else {
+          setTokenStatus(prev => ({
+            ...prev,
+            [entry.tokenHash]: { is_triggered: true, checking: false }
+          }));
+        }
+      } else {
+        setTokenStatus(prev => ({
+          ...prev,
+          [entry.tokenHash]: { is_triggered: false, checking: false }
+        }));
+      }
+    } catch (err) {
+      setTokenStatus(prev => ({
+        ...prev,
+        [entry.tokenHash]: { error: err.message, checking: false }
+      }));
+    }
+  }, []);
 
   const handleDelete = (idx) => {
     let newHistory = [...history];

@@ -48,6 +48,9 @@ docker-compose.debug.yml
 *.sqlite3
 backend/data/docs_metadata.json
 
+# ---- Canary output (generated files, never commit) ----
+backend/data/canary_output/
+
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
 models/

@@ -15,7 +15,7 @@ class Organization(db.Model):
 
     organization_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     departments = db.relationship('Department', backref='organization', lazy=True, cascade='all, delete-orphan')
@@ -39,7 +39,7 @@ class Department(db.Model):
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     color = db.Column(db.String(20), nullable=True, default='#3b82f6')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     users = db.relationship('User', backref='department', lazy=True)
@@ -77,7 +77,7 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     status = db.Column(db.String(50), default='Active')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     uploads = db.relationship('Upload', backref='user', lazy=True, cascade='all, delete-orphan')
@@ -110,7 +110,7 @@ class Role(db.Model):
     organization_id = db.Column(db.Integer, db.ForeignKey('organisation.organization_id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     permissions = db.relationship('RolePermission', backref='role', lazy=True, cascade='all, delete-orphan')
@@ -162,7 +162,7 @@ class Document(db.Model):
     filename = db.Column(db.String(255), nullable=False)
     storage_ref = db.Column(db.String(500), nullable=False)
     sensitivity = db.Column(db.String(50), default='Medium')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     uploads = db.relationship('Upload', backref='document', lazy=True, cascade='all, delete-orphan')
@@ -179,21 +179,30 @@ class Upload(db.Model):
     document_id = db.Column(db.Integer, db.ForeignKey('documents.document_id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
     uploaded_by = db.Column(db.String(100), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     def __repr__(self):
         return f'<Upload {self.upload_id}>'
 
 class CanaryToken(db.Model):
-    """Canary tokens for document tracking"""
+    """Canary tokens for document tracking and exfiltration forensics"""
     __tablename__ = 'canary_tokens'
 
     canary_token_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    document_id = db.Column(db.Integer, db.ForeignKey('documents.document_id'), nullable=False)
+    document_id     = db.Column(db.Integer, db.ForeignKey('documents.document_id'), nullable=False)
     organization_id = db.Column(db.Integer, db.ForeignKey('organisation.organization_id'), nullable=False)
-    token_hash = db.Column(db.String(255), unique=True, nullable=False)
-    is_triggered = db.Column(db.Boolean, default=False)
-    triggered_at = db.Column(db.DateTime, nullable=True)
+    token_hash      = db.Column(db.String(255), unique=True, nullable=False)
+    is_triggered    = db.Column(db.Boolean, default=False)
+    triggered_at    = db.Column(db.DateTime, nullable=True)
+
+    # Forensic attribution — populated when the token fires
+    source_ip       = db.Column(db.String(45),  nullable=True)   # IPv4 or IPv6
+    user_agent      = db.Column(db.Text,         nullable=True)   # browser / app / OS
+    referer         = db.Column(db.Text,         nullable=True)   # what opened the doc
+    geo_country     = db.Column(db.String(100),  nullable=True)
+    geo_city        = db.Column(db.String(100),  nullable=True)
+    trigger_source  = db.Column(db.String(50),   nullable=True)   # 'internal' | 'http_ping' | 'webhook'
+    document_name   = db.Column(db.String(255),  nullable=True)
 
     def __repr__(self):
         return f'<Canary_Token {self.canary_token_id}>'
@@ -206,7 +215,7 @@ class Subscription(db.Model):
     organization_id = db.Column(db.Integer, db.ForeignKey('organisation.organization_id'), nullable=False)
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.plan_id'), nullable=False)
     status = db.Column(db.String(50), default='Active')
-    start_date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    start_date = db.Column(db.DateTime, default=_utcnow, nullable=False)
     end_date = db.Column(db.DateTime, nullable=True)
 
     # Relationships
@@ -223,7 +232,7 @@ class Plan(db.Model):
     name = db.Column(db.String(100), nullable=False)
     features_page = db.Column(db.Text, nullable=True)
     limits = db.Column(db.JSON, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     # Relationships
     subscriptions = db.relationship('Subscription', backref='plan', lazy=True)
@@ -239,7 +248,7 @@ class UsageMetric(db.Model):
     subscription_id = db.Column(db.Integer, db.ForeignKey('subscriptions.subscription_id'), nullable=False)
     metric_type = db.Column(db.String(100), nullable=False)
     metric_value = db.Column(db.Float, nullable=False)
-    recorded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    recorded_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     def __repr__(self):
         return f'<Usage_Metric {self.metric_type}>'
@@ -255,7 +264,7 @@ class AuditLog(db.Model):
     target_type = db.Column(db.String(100), nullable=True)
     target_id = db.Column(db.Integer, nullable=True)
     meta_data = db.Column(db.JSON, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     def __repr__(self):
         return f'<AuditLog {self.action} by user {self.user_id}>'
@@ -271,7 +280,7 @@ class PayloadLog(db.Model):
     ml_score = db.Column(db.Float, nullable=True)
     regex_hits = db.Column(db.JSON, nullable=True)
     final_score = db.Column(db.Float, nullable=True)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     def __repr__(self):
         return f'<PayloadLog {self.decision} score={self.final_score}>'
@@ -288,7 +297,7 @@ class AnomalyScore(db.Model):
     anomaly_type    = db.Column(db.String(100), nullable=True)
     is_anomaly      = db.Column(db.Boolean, nullable=False, default=False)
     model_version   = db.Column(db.String(50), nullable=True)
-    scored_at       = db.Column(db.DateTime, default=datetime.utcnow)
+    scored_at       = db.Column(db.DateTime, default=_utcnow)
 
     def __repr__(self):
         return f'<AnomalyScore audit_id={self.audit_id} score={self.anomaly_score}>'

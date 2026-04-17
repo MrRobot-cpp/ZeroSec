@@ -10,7 +10,7 @@ from flask_jwt_extended import (
 from datetime import datetime, timezone
 
 from backend.database.db import db, bcrypt
-from backend.database.models import User, Organization, Department, AuditLog, UserRole, Role, Subscription, Plan
+from backend.database.models import User, Organization, Department, AuditLog, UserRole, Role, Subscription, Plan, ClearanceLevel
 from backend.utils.audit import log_audit
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
@@ -109,6 +109,16 @@ def register():
             organization_id=org.organization_id
         ).first()
 
+        # For first user of new org, get highest clearance level (Top Secret)
+        first_user_clearance_id = None
+        if is_new_org:
+            top_secret = ClearanceLevel.query.filter_by(
+                organization_id=org.organization_id,
+                name='Top Secret'
+            ).first()
+            if top_secret:
+                first_user_clearance_id = top_secret.clearance_level_id
+
         # Hash password
         password_hash = bcrypt.generate_password_hash(data['password']).decode('utf-8')
 
@@ -116,11 +126,12 @@ def register():
         user = User(
             organization_id=org.organization_id,
             department_id=dept.department_id if dept else None,
+            clearance_level_id=first_user_clearance_id,
             username=data['username'],
             email=data['email'],
             password_hash=password_hash,
             status='Active',
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         db.session.add(user)
         db.session.flush()

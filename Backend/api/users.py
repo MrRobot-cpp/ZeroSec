@@ -135,6 +135,16 @@ def create_user():
         role_name = data.get('role')
         if role_name:
             from backend.database.models import Role
+            from flask_jwt_extended import get_jwt
+
+            # Security Analysts cannot assign Admin or Security Analyst roles
+            caller_is_admin = 'admin' in get_jwt().get('permissions', [])
+            restricted_roles = {'Admin', 'Super Admin', 'Security Analyst'}
+            if not caller_is_admin and role_name in restricted_roles:
+                return jsonify({
+                    'error': f'You do not have permission to assign the "{role_name}" role'
+                }), 403
+
             role = Role.query.filter_by(
                 organization_id=organization_id,
                 name=role_name

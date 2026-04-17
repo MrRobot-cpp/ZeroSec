@@ -284,8 +284,11 @@ def get_documents():
                 if not allowed:
                     continue
 
-            # Try to get file stats if file exists
-            file_path = DOCS_PATH / doc.filename
+            # Try to get file stats — HIGH docs live in HIGH_DOCS_PATH (stored as ciphertext)
+            if doc.sensitivity == 'High':
+                file_path = HIGH_DOCS_PATH / doc.filename
+            else:
+                file_path = DOCS_PATH / doc.filename
             file_size = file_path.stat().st_size if file_path.exists() else 0
 
             documents.append({
@@ -369,21 +372,31 @@ def upload_document():
                 clearance_level_id=clearance_level_id,
                 user_id=user_id
             )
-            try:
-                _ingest_high_sensitivity(raw_bytes, filename, str(document.document_id), text_content)
-            except Exception as ingest_err:
-                # Rollback: remove orphan DB record and any partial files
-                try:
-                    DocumentRepository.delete_document(document.document_id)
-                except Exception:
-                    pass
-                try:
-                    high_file = HIGH_DOCS_PATH / filename
-                    if high_file.exists():
-                        high_file.unlink()
-                except Exception:
-                    pass
-                return jsonify({'error': f'High sensitivity ingest failed: {str(ingest_err)}'}), 500
+            doc_id_str = str(document.document_id)
+
+            # Run ingest in a background thread — embedding can take 30+ seconds
+            # The document record is already saved; ingest failure is logged but
+            # does not block the upload response.
+            import threading
+            from flask import current_app
+
+            app_ctx = current_app._get_current_object()
+
+            def _bg_ingest(app, raw, fname, did, text):
+                with app.app_context():
+                    try:
+                        _ingest_high_sensitivity(raw, fname, did, text)
+                    except Exception as exc:
+                        import logging
+                        logging.getLogger("zerosec.documents").error(
+                            "[HIGH upload] background ingest failed for %s: %s", fname, exc
+                        )
+
+            threading.Thread(
+                target=_bg_ingest,
+                args=(app_ctx, raw_bytes, filename, doc_id_str, text_content),
+                daemon=True,
+            ).start()
         else:
             # Standard pipeline — save plaintext to disk, refresh Chroma vectorstore
             file_path = DOCS_PATH / filename

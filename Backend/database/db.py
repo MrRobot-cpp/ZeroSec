@@ -10,6 +10,29 @@ db = SQLAlchemy()
 bcrypt = Bcrypt()
 jwt = JWTManager()
 
+def _migrate_canary_tokens(engine):
+    """Add forensic columns to canary_tokens if missing (safe to re-run)."""
+    columns_to_add = [
+        ("source_ip",       "VARCHAR(45)"),
+        ("user_agent",      "TEXT"),
+        ("referer",         "TEXT"),
+        ("geo_country",     "VARCHAR(100)"),
+        ("geo_city",        "VARCHAR(100)"),
+        ("trigger_source",  "VARCHAR(50)"),
+        ("document_name",   "VARCHAR(255)"),
+    ]
+    with engine.connect() as conn:
+        for col_name, col_type in columns_to_add:
+            try:
+                conn.execute(
+                    db.text(f"ALTER TABLE canary_tokens ADD COLUMN {col_name} {col_type}")
+                )
+                conn.commit()
+            except Exception:
+                # Column already exists — ignore
+                conn.rollback()
+
+
 def init_db(app):
     """
     Initialize database with Flask app
@@ -31,6 +54,9 @@ def init_db(app):
 
         # Create all tables
         db.create_all()
+
+        # Migrate canary_tokens to add forensic columns if missing
+        _migrate_canary_tokens(db.engine)
 
         # Initialize default data
         _initialize_default_data()
@@ -100,22 +126,34 @@ def _initialize_default_data():
         {
             "name": "Admin",
             "description": "Full system access with all permissions",
-            "permissions": ["read", "create", "update", "delete", "admin"]
+            "permissions": [
+                "admin", "read", "create", "update", "delete",
+                "document_view", "document_upload", "document_delete", "document_manage",
+                "user_manage", "role_manage", "policy_manage", "audit_view",
+                "canary_manage", "rag_query", "dashboard_view", "red_team_access"
+            ]
         },
         {
             "name": "Security Analyst",
-            "description": "Security monitoring and analysis capabilities",
-            "permissions": ["read", "create", "update"]
+            "description": "Security monitoring — dashboard, docs, canary, users, logs, red team; no settings",
+            "permissions": [
+                "read", "create", "update",
+                "document_view", "document_upload", "canary_manage",
+                "rag_query", "audit_view", "user_manage",
+                "dashboard_view", "red_team_access"
+            ]
         },
         {
             "name": "Auditor",
-            "description": "Read-only access for compliance and auditing",
-            "permissions": ["read"]
+            "description": "Read-only access for compliance: RAG, documents, canary, logs",
+            "permissions": [
+                "read", "audit_view", "canary_manage", "document_view", "rag_query"
+            ]
         },
         {
             "name": "User",
-            "description": "Basic user access with limited permissions",
-            "permissions": ["read", "create"]
+            "description": "Standard user — RAG assistant only",
+            "permissions": ["read", "rag_query"]
         }
     ]
 

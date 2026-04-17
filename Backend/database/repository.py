@@ -162,7 +162,8 @@ class RoleRepository:
                     'admin', 'create', 'read', 'update', 'delete',
                     'document_view', 'document_upload', 'document_delete', 'document_manage',
                     'user_manage', 'role_manage', 'policy_manage', 'audit_view',
-                    'canary_manage', 'rag_query', 'admin_full'
+                    'canary_manage', 'rag_query', 'admin_full',
+                    'dashboard_view', 'red_team_access'
                 ]
             },
             {
@@ -171,20 +172,23 @@ class RoleRepository:
                 'permissions': [
                     'admin', 'create', 'read', 'update', 'delete',
                     'document_view', 'document_upload', 'document_delete', 'document_manage',
-                    'user_manage', 'policy_manage', 'audit_view', 'canary_manage', 'rag_query'
+                    'user_manage', 'policy_manage', 'audit_view', 'canary_manage', 'rag_query',
+                    'dashboard_view', 'red_team_access'
                 ]
             },
             {
-                'name': 'Security Admin',
-                'description': 'Focus on security policies and audit logs',
+                'name': 'Security Analyst',
+                'description': 'Dashboard, docs, canary, users, logs, red team — no settings',
                 'permissions': [
-                    'read', 'update',
-                    'document_view', 'policy_manage', 'audit_view', 'canary_manage', 'rag_query'
+                    'read', 'create', 'update',
+                    'document_view', 'document_upload', 'canary_manage',
+                    'rag_query', 'audit_view', 'user_manage',
+                    'dashboard_view', 'red_team_access'
                 ]
             },
             {
                 'name': 'Auditor',
-                'description': 'Read-only access to logs, documents, canary watermarks, and RAG assistant',
+                'description': 'Read-only: RAG assistant, documents, canary watermarks, logs & alerts',
                 'permissions': [
                     'read',
                     'audit_view', 'canary_manage', 'document_view', 'rag_query'

@@ -5,30 +5,31 @@ import { useAuth } from "@/context/AuthContext";
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { hasPermission, user, logout } = useAuth();
+  const { hasPermission, logout } = useAuth();
 
-  // Navigation items with required permissions (using specific permissions per page)
-  // - Dashboard:       admin only
-  // - RAG Assistant:   rag_query  (User, Auditor, Admin)
-  // - Documents:       document_view  (Auditor, Admin)
-  // - Canary Watermark: canary_manage  (Auditor, Admin)
-  // - Policies:        policy_manage  (Admin)
-  // - Users & Access:  user_manage  (Admin)
-  // - Logs & Alerts:   audit_view  (Auditor, Admin)
-  // - Settings:        admin  (Admin)
+  // Navigation items with required permissions:
+  // - Dashboard:        dashboard_view  (Admin, Security Analyst)
+  // - RAG Assistant:    rag_query       (User, Auditor, Security Analyst, Admin)
+  // - Documents:        document_view   (Auditor, Security Analyst, Admin)
+  // - Canary Watermark: canary_manage   (Auditor, Security Analyst, Admin)
+  // - Policies:         policy_manage   (Admin)
+  // - Users & Access:   user_manage     (Security Analyst, Admin)
+  // - Logs & Alerts:    audit_view      (Auditor, Security Analyst, Admin)
+  // - Red Team:         red_team_access (Security Analyst, Admin)
+  // - Settings:         admin           (Admin only)
   const navItems = [
-    { label: "Dashboard", path: "/dashboard", permission: "admin" }, // admin only
-    { label: "RAG Assistant", path: "/rag", permission: "rag_query" }, // User, Auditor, Admin
-    { label: "Documents", path: "/documents", permission: "document_view" }, // Auditor, Admin
-    { label: "Canary Watermark", path: "/canary", permission: "canary_manage" }, // Auditor, Admin
-    { label: "Policies", path: "/policies", permission: "policy_manage" }, // Admin
-    { label: "Users & Access", path: "/users", permission: "user_manage" }, // Admin
-    { label: "Logs & Alerts", path: "/logs-alerts", permission: "audit_view" }, // Auditor, Admin
-    { label: "Red Team", path: "/red-team", permission: "admin" }, // Admin
+    { label: "Dashboard", path: "/dashboard", permission: "dashboard_view" },
+    { label: "RAG Assistant", path: "/rag", permission: "rag_query" },
+    { label: "Documents", path: "/documents", permission: "document_view" },
+    { label: "Canary Watermark", path: "/canary", permission: "canary_manage" },
+    { label: "Policies", path: "/policies", permission: "policy_manage" },
+    { label: "Users & Access", path: "/users", permission: "user_manage" },
+    { label: "Logs & Alerts", path: "/logs-alerts", permission: "audit_view" },
+    { label: "Red Team", path: "/red-team", permission: "red_team_access" },
   ];
 
   const bottomNavItems = [
-    { label: "Settings", path: "/settings", icon: "⚙️", permission: "admin" }, // Admin only
+    { label: "Settings", path: "/settings", icon: "⚙️", permission: "admin" },
   ];
 
   // Filter nav items based on user permissions

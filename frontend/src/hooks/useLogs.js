@@ -6,11 +6,23 @@ export default function useLogs() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [filters, setFilters] = useState({
+
+  // Separate filter state for each tab so they never interfere with each other.
+  const [logFilters, setLogFilters] = useState({
     type: "all",
     decision: "all",
     search: "",
   });
+  const [alertFilters, setAlertFilters] = useState({
+    alertType: "all",
+    severity: "all",
+    search: "",
+  });
+
+  // Merged view exposed as `filters` for components that read both tabs' state
+  // (e.g. LogsAndAlerts header). Alert-specific keys are on alertFilters;
+  // log-specific keys are on logFilters.
+  const filters = { ...logFilters, ...alertFilters };
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
@@ -46,7 +58,18 @@ export default function useLogs() {
   }, []);
 
   const applyFilters = useCallback((newFilters) => {
-    setFilters((prev) => ({ ...prev, ...newFilters }));
+    // Route alert-specific keys to alertFilters, everything else to logFilters
+    const alertKeys = ["alertType", "severity"];
+    const isAlertFilter = Object.keys(newFilters).some((k) =>
+      alertKeys.includes(k)
+    );
+
+    if (isAlertFilter) {
+      // If the caller also sent `search`, treat it as the alert search
+      setAlertFilters((prev) => ({ ...prev, ...newFilters }));
+    } else {
+      setLogFilters((prev) => ({ ...prev, ...newFilters }));
+    }
   }, []);
 
   const getFilteredLogs = useCallback(() => {
@@ -58,9 +81,9 @@ export default function useLogs() {
     );
 
     // Filter by type
-    if (filters.type && filters.type !== "all") {
+    if (logFilters.type && logFilters.type !== "all") {
       filtered = filtered.filter((log) => {
-        const type = filters.type.toLowerCase();
+        const type = logFilters.type.toLowerCase();
         if (type === "query") return log.query || log.Query;
         if (type === "ingestion") return log.type === "ingestion";
         if (type === "violation") return log.decision === "BLOCK";
@@ -70,15 +93,15 @@ export default function useLogs() {
     }
 
     // Filter by decision
-    if (filters.decision && filters.decision !== "all") {
+    if (logFilters.decision && logFilters.decision !== "all") {
       filtered = filtered.filter(
-        (log) => log.decision?.toUpperCase() === filters.decision.toUpperCase()
+        (log) => log.decision?.toUpperCase() === logFilters.decision.toUpperCase()
       );
     }
 
-    // Filter by search term
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
+    // Filter by search term (logs-only search)
+    if (logFilters.search) {
+      const searchLower = logFilters.search.toLowerCase();
       filtered = filtered.filter(
         (log) =>
           log.query?.toLowerCase().includes(searchLower) ||
@@ -88,26 +111,26 @@ export default function useLogs() {
     }
 
     return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  }, [logs, filters]);
+  }, [logs, logFilters]);
 
   const getFilteredAlerts = useCallback(() => {
     let filtered = [...alerts];
 
     // Filter by alert type
-    if (filters.alertType && filters.alertType !== "all") {
+    if (alertFilters.alertType && alertFilters.alertType !== "all") {
       filtered = filtered.filter(
-        (alert) => alert.alertType === filters.alertType
+        (alert) => alert.alertType === alertFilters.alertType
       );
     }
 
     // Filter by severity
-    if (filters.severity && filters.severity !== "all") {
-      filtered = filtered.filter((alert) => alert.severity === filters.severity);
+    if (alertFilters.severity && alertFilters.severity !== "all") {
+      filtered = filtered.filter((alert) => alert.severity === alertFilters.severity);
     }
 
-    // Filter by search term
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
+    // Filter by search term (alerts-only search)
+    if (alertFilters.search) {
+      const searchLower = alertFilters.search.toLowerCase();
       filtered = filtered.filter(
         (alert) =>
           alert.query?.toLowerCase().includes(searchLower) ||
@@ -117,7 +140,7 @@ export default function useLogs() {
     }
 
     return filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  }, [alerts, filters]);
+  }, [alerts, alertFilters]);
 
   useEffect(() => {
     fetchLogs();
@@ -133,7 +156,9 @@ export default function useLogs() {
     alerts,
     loading,
     error,
-    filters,
+    filters,          // merged view (backwards compat)
+    logFilters,       // Logs-tab specific filters
+    alertFilters,     // Alerts-tab specific filters
     applyFilters,
     getFilteredLogs,
     getFilteredAlerts,

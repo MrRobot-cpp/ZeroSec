@@ -2,21 +2,22 @@ import { useState, useMemo } from "react";
 import PropTypes from "prop-types";
 
 export default function AlertsTab({ logsData }) {
-  const { filters, applyFilters, getFilteredAlerts, loading } = logsData;
+  const { alerts, alertFilters, applyFilters, getFilteredAlerts, loading } = logsData;
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
   const filteredAlerts = useMemo(() => getFilteredAlerts(), [getFilteredAlerts]);
 
-  // Group alerts by type
+  // Group alerts by type — use the FULL unfiltered alerts array so that
+  // stat card counts are never affected by the currently active filter.
   const alertsByType = useMemo(() => {
-    return filteredAlerts.reduce((acc, alert) => {
+    return alerts.reduce((acc, alert) => {
       const type = alert.alertType || "other";
       if (!acc[type]) acc[type] = [];
       acc[type].push(alert);
       return acc;
     }, {});
-  }, [filteredAlerts]);
+  }, [alerts]);
 
   const alertTypeConfig = {
     anomaly: {
@@ -89,9 +90,21 @@ export default function AlertsTab({ logsData }) {
           return (
             <div
               key={type}
-              className={`bg-gray-800 border border-gray-700 rounded-xl p-4 ${count > 0 ? "hover:border-gray-600 cursor-pointer" : ""
+              className={`bg-gray-800 border border-gray-700 rounded-xl p-4 ${
+                alertFilters.alertType === type
+                  ? "ring-2 ring-blue-500 border-blue-500"
+                  : count > 0
+                  ? "hover:border-gray-600 cursor-pointer"
+                  : ""
                 } transition-colors`}
-              onClick={() => count > 0 && applyFilters({ alertType: type })}
+              onClick={() =>
+                count > 0 &&
+                applyFilters({
+                  alertType: alertFilters.alertType === type ? "all" : type,
+                  severity: "all",
+                  search: "",
+                })
+              }
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -115,7 +128,7 @@ export default function AlertsTab({ logsData }) {
               Alert Type
             </label>
             <select
-              value={filters.alertType || "all"}
+              value={alertFilters.alertType || "all"}
               onChange={(e) => applyFilters({ alertType: e.target.value })}
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             >
@@ -135,7 +148,7 @@ export default function AlertsTab({ logsData }) {
               Severity
             </label>
             <select
-              value={filters.severity || "all"}
+              value={alertFilters.severity || "all"}
               onChange={(e) => applyFilters({ severity: e.target.value })}
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             >
@@ -154,8 +167,8 @@ export default function AlertsTab({ logsData }) {
             </label>
             <input
               type="text"
-              value={filters.search || ""}
-              onChange={(e) => applyFilters({ search: e.target.value })}
+              value={alertFilters.search || ""}
+              onChange={(e) => applyFilters({ alertType: alertFilters.alertType, search: e.target.value })}
               placeholder="Search alerts..."
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             />
@@ -391,7 +404,8 @@ export default function AlertsTab({ logsData }) {
 
 AlertsTab.propTypes = {
   logsData: PropTypes.shape({
-    filters: PropTypes.object.isRequired,
+    alerts: PropTypes.array.isRequired,
+    alertFilters: PropTypes.object.isRequired,
     applyFilters: PropTypes.func.isRequired,
     getFilteredAlerts: PropTypes.func.isRequired,
     loading: PropTypes.bool.isRequired,

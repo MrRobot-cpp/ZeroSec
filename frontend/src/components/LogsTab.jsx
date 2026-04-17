@@ -3,7 +3,7 @@ import PropTypes from "prop-types";
 import { exportLogs } from "@/services/logsService";
 
 export default function LogsTab({ logsData }) {
-  const { filters, applyFilters, getFilteredLogs, loading } = logsData;
+  const { logFilters, applyFilters, getFilteredLogs, loading } = logsData;
   const [searchInput, setSearchInput] = useState("");
   const [selectedLog, setSelectedLog] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -21,7 +21,7 @@ export default function LogsTab({ logsData }) {
 
   const handleExport = async (format) => {
     try {
-      await exportLogs(format, filters);
+      await exportLogs(format, logFilters);
     } catch (error) {
       console.error("Export failed:", error);
     }
@@ -93,7 +93,7 @@ export default function LogsTab({ logsData }) {
               Type
             </label>
             <select
-              value={filters.type}
+              value={logFilters.type}
               onChange={(e) => handleFilterChange("type", e.target.value)}
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             >
@@ -111,7 +111,7 @@ export default function LogsTab({ logsData }) {
               Decision
             </label>
             <select
-              value={filters.decision}
+              value={logFilters.decision}
               onChange={(e) => handleFilterChange("decision", e.target.value)}
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
             >
@@ -324,7 +324,7 @@ export default function LogsTab({ logsData }) {
 
 LogsTab.propTypes = {
   logsData: PropTypes.shape({
-    filters: PropTypes.object.isRequired,
+    logFilters: PropTypes.object.isRequired,
     applyFilters: PropTypes.func.isRequired,
     getFilteredLogs: PropTypes.func.isRequired,
     loading: PropTypes.bool.isRequired,

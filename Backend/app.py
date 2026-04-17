@@ -7,7 +7,7 @@ if sys.platform == "win32":
 from flask import Flask, request, jsonify, Response
 # jwt_required used inline in /logs via verify_jwt_in_request
 from flask_cors import CORS
-import os
+import os, datetime
 
 from backend.config import config
 from backend.database.db import init_db
@@ -91,8 +91,13 @@ def query_route():
         except Exception:
             pass
 
+        # Use a single timestamp for both logs to ensure correct merging in the UI.
+        # isoformat() on a tz-aware datetime already yields "+00:00"; don't append "Z".
+        now = datetime.datetime.now(datetime.timezone.utc)
+        timestamp_str = now.isoformat()
+
         result = query_rag(question)
-        log_decision(question, result)
+        log_decision(question, result, timestamp=timestamp_str)
 
         # Log audit event for anomaly detection
         log_audit(
@@ -104,7 +109,8 @@ def query_route():
                 "query": question[:200],
                 "decision": result.get("decision", "ALLOW"),
                 "reason": result.get("reason", "N/A")
-            }
+            },
+            created_at=now
         )
 
         return jsonify(result)
@@ -148,10 +154,13 @@ def logs():
         except Exception:
             pass
 
-        # Get recent audit logs
+        # Fetch recent audit logs for the organization. Exclude only internal
+        # bookkeeping events (anomaly_detected); everything else — logins,
+        # logouts, document views, query blocks — belongs in the security log.
         recent_audit_logs = AuditLog.query.filter_by(
             organization_id=organization_id
-        ).order_by(AuditLog.created_at.desc()).limit(100).all()
+        ).filter(AuditLog.action != 'anomaly_detected') \
+         .order_by(AuditLog.created_at.desc()).limit(100).all()
 
         recent_ids = {log.audit_id for log in recent_audit_logs}
 
@@ -210,7 +219,10 @@ def logs():
         indexed_logs = {}
         for log in raw_firewall_logs:
             log['type'] = 'firewall'
-            log['anomaly_score'] = None
+            # Default to 0.0 so a CSV-only row still shows a numeric score in
+            # the UI. Will be overwritten below if a matching audit entry has a score.
+            log['anomaly_score'] = 0.0
+            log['is_anomaly'] = False
             indexed_logs[get_log_key(log)] = log
 
         # 1. Process Audit Logs and overwrite/merge with Firewall logs
@@ -250,16 +262,20 @@ def logs():
                 'anomaly_score': None
             }
 
-            # Enrich with Anomaly Score — only for genuinely anomalous events,
-            # not for system-generated scoring artifacts (score=0.0 normal activity).
+            # Enrich with Anomaly Score. Fall back to 0.0 when no score row
+            # exists yet — ensures the UI always renders a number rather than "—".
             s = score_map.get(log.audit_id)
-            if s and s.is_anomaly and s.anomaly_score > 0.0:
+            if s:
                 entry['anomaly_score'] = round(s.anomaly_score, 3)
                 entry['anomaly_type']  = s.anomaly_type
-                entry['decision']      = 'BLOCK'
-                entry['reason']        = _anomaly_reason(s.anomaly_score)
-                entry['stopped_by']    = 'Anomaly Detection (ML)'
-                entry['is_anomaly']    = True
+                entry['is_anomaly']    = s.is_anomaly
+                if s.is_anomaly:
+                    entry['decision']      = 'BLOCK'
+                    entry['reason']        = _anomaly_reason(s.anomaly_score)
+                    entry['stopped_by']    = 'Anomaly Detection (ML)'
+            else:
+                entry['anomaly_score'] = 0.0
+                entry['is_anomaly']    = False
 
             # Deduplicate: Audit entry takes priority over firewall entry
             key = get_log_key(entry)

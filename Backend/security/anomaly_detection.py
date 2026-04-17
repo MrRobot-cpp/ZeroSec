@@ -274,35 +274,117 @@ class AnomalyDetector:
             self._window.append(event_dict)
             window_snapshot = list(self._window)
 
-        # Need minimum events for meaningful window statistics
-        if len(window_snapshot) < self._WINDOW_MIN:
-            return
+        # 1. UEBA Behavioral Path (requires scaler). For windows smaller than
+        # _WINDOW_MIN the statistics are too sparse to be meaningful, so we
+        # skip UEBA but still let the NLP path fire so every event gets a score.
+        ueba_score = 0.0
+        if self._scaler is not None and len(window_snapshot) >= self._WINDOW_MIN:
+            ueba_score = self._score_batch_features(window_snapshot)
 
-        if not self.is_ready():
-            return
+        # 2. NLP Content Path (requires vectorizer). Works on a single event.
+        nlp_score = 0.0
+        if self._vectorizer is not None:
+            text_to_score = event.details.get('query') or event.details.get('question') or event.eventType
+            nlp_score = self._score_features(text_to_score)
 
-        score = self._score_batch_features(window_snapshot)
+        # 3. Rule-based velocity/failure heuristics. Fires without any ML
+        # model loaded — catches login spam, failed-auth storms, etc.
+        rule_score, rule_type = self._score_rule_based(window_snapshot, event)
 
-        if score > ANOMALY_THRESHOLD:
-            now = datetime.now(timezone.utc)
-            # Cooldown: don't fire more than once per _ALERT_COOLDOWN seconds.
-            # This prevents 30 identical alert rows for a single burst session.
-            with self._lock:
-                if (self._last_alert_at is not None and
-                        (now - self._last_alert_at).total_seconds() < self._ALERT_COOLDOWN):
-                    return
-                self._last_alert_at = now
+        # Use the highest score from available paths
+        score = max(ueba_score, nlp_score, rule_score)
 
+        if score == rule_score and rule_type:
+            anomaly_type = rule_type
+        else:
             anomaly_type = self.determineAnomalyType(event, event.eventType.lower())
-            anomaly = Anomaly(
-                type=anomaly_type,
-                confidence=score,
-                events=[event],
-                timestamp=now,
+        is_anom = score > ANOMALY_THRESHOLD
+
+        if is_anom:
+            now = datetime.now(timezone.utc)
+            # Cooldown: don't fire more than once per _ALERT_COOLDOWN seconds for SYSTEM ALERTS.
+            # However, we still write the score to the DB for UI visibility.
+            with self._lock:
+                should_alert = (self._last_alert_at is None or
+                               (now - self._last_alert_at).total_seconds() >= self._ALERT_COOLDOWN)
+                
+                if should_alert:
+                    self._last_alert_at = now
+                    anomaly = Anomaly(
+                        type=anomaly_type,
+                        confidence=score,
+                        events=[event],
+                        timestamp=now,
+                    )
+                    self.sendAlert(anomaly)
+        
+        # ALWAYS write the score to the DB for UI/Logs visibility
+        self._write_anomaly_score(event, score, anomaly_type, is_anomaly=is_anom)
+
+    def _score_rule_based(self, window_snapshot, event: SecurityEvent):
+        """
+        Model-free anomaly heuristics driven purely by the rolling window.
+        Returns (score in [0,1], human-readable type or None).
+
+        Rules (take the max):
+          - Velocity burst: many events of the same action from the same user
+            within the last 60 seconds (e.g. login spam).
+          - High failed-action ratio over the window.
+          - Repeated identical queries (suggests automation / brute force).
+        """
+        if not window_snapshot:
+            return 0.0, None
+
+        now = datetime.now(timezone.utc)
+        window_60s = []
+        for ed in window_snapshot:
+            ts = ed.get('timestamp')
+            if isinstance(ts, str):
+                try:
+                    ts = datetime.fromisoformat(ts)
+                except ValueError:
+                    continue
+            if isinstance(ts, datetime):
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if (now - ts).total_seconds() <= 60:
+                    window_60s.append(ed)
+
+        best_score, best_type = 0.0, None
+
+        # Rule A: same user + same action velocity burst
+        same_user_action = [
+            ed for ed in window_60s
+            if ed.get('user_id') == event.userId
+            and ed.get('action') == event.eventType
+        ]
+        if len(same_user_action) >= 5:
+            score = min(1.0, 0.55 + 0.05 * (len(same_user_action) - 5))
+            if score > best_score:
+                best_score, best_type = score, f"Velocity burst: {event.eventType} x{len(same_user_action)} / 60s"
+
+        # Rule B: failed-action ratio over the full window
+        failed = sum(1 for ed in window_snapshot if ed.get('action') in _FAILED_ACTIONS)
+        total = len(window_snapshot)
+        if total >= 5 and failed / total > 0.4:
+            score = min(1.0, 0.60 + (failed / total) * 0.4)
+            if score > best_score:
+                best_score, best_type = score, "High failure rate / probing"
+
+        # Rule C: repeated identical query text
+        q = (event.details.get('query') or event.details.get('question') or '').strip().lower()
+        if q:
+            repeats = sum(
+                1 for ed in window_snapshot
+                if (ed.get('meta_data') or {}).get('query', '').strip().lower() == q
+                or (ed.get('meta_data') or {}).get('question', '').strip().lower() == q
             )
-            self.sendAlert(anomaly)
-            self._write_anomaly_score(event, score, anomaly_type, is_anomaly=True)
-        # Do NOT write 0.0 scores — they bloat the DB and create noise in the UI.
+            if repeats >= 5:
+                score = min(1.0, 0.55 + 0.05 * (repeats - 5))
+                if score > best_score:
+                    best_score, best_type = score, f"Repeated query x{repeats}"
+
+        return best_score, best_type
 
     def _score_features(self, features) -> float:
         """
@@ -423,30 +505,38 @@ class AnomalyDetector:
 
     def _write_anomaly_score(self, event: SecurityEvent, score: float,
                                anomaly_type: str, is_anomaly: bool) -> None:
-        """Write / update AnomalyScore row. Uses stored Flask app context."""
+        """Write / update AnomalyScore row. Reuses active Flask app context if one exists."""
         if self._app is None or not event.id.isdigit():
             return
         audit_id = int(event.id)
+
+        def _do_write():
+            from backend.database.db import db
+            from backend.database.models import AnomalyScore
+            existing = AnomalyScore.query.filter_by(audit_id=audit_id).first()
+            if existing:
+                existing.anomaly_score = score
+                existing.is_anomaly = is_anomaly
+                existing.anomaly_type = anomaly_type
+            else:
+                db.session.add(AnomalyScore(
+                    audit_id=audit_id,
+                    organization_id=event.organizationId,
+                    user_id=event.userId,
+                    anomaly_score=score,
+                    anomaly_type=anomaly_type,
+                    is_anomaly=is_anomaly,
+                    model_version=self._model_name,
+                ))
+            db.session.commit()
+
         try:
-            with self._app.app_context():
-                from backend.database.db import db
-                from backend.database.models import AnomalyScore
-                existing = AnomalyScore.query.filter_by(audit_id=audit_id).first()
-                if existing:
-                    existing.anomaly_score = score
-                    existing.is_anomaly = is_anomaly
-                    existing.anomaly_type = anomaly_type
-                else:
-                    db.session.add(AnomalyScore(
-                        audit_id=audit_id,
-                        organization_id=event.organizationId,
-                        user_id=event.userId,
-                        anomaly_score=score,
-                        anomaly_type=anomaly_type,
-                        is_anomaly=is_anomaly,
-                        model_version=self._model_name,
-                    ))
-                db.session.commit()
+            from flask import has_app_context
+            if has_app_context():
+                _do_write()
+            else:
+                with self._app.app_context():
+                    _do_write()
         except Exception as exc:
             logger.error("Failed to write AnomalyScore for audit_id=%d: %s", audit_id, exc)
 
@@ -491,7 +581,7 @@ class AnomalyDetector:
         """
         if self._model is None or self._scaler is None:
             return 0.0
-        if len(event_dicts) < 2:
+        if len(event_dicts) < 1:
             return 0.0
         try:
             import math
@@ -511,7 +601,7 @@ class AnomalyDetector:
                         ts = ts.replace(tzinfo=timezone.utc)
                     timestamps.append(ts)
 
-            if len(timestamps) < 2:
+            if len(timestamps) < 1:
                 return 0.0
 
             timestamps.sort()

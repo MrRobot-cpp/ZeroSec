@@ -14,10 +14,12 @@ def init_logs():
             writer = csv.writer(f)
             writer.writerow(["timestamp", "query", "decision", "reason", "stopped_by"])
 
-def log_decision(query, result):
+def log_decision(query, result, timestamp=None):
     """Log a firewall decision to CSV"""
+    if not timestamp:
+        timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     entry = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": timestamp,
         "query": query,
         "decision": result.get("decision", "ALLOW"),
         "reason": result.get("reason", ""),

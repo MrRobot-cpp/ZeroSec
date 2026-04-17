@@ -8,7 +8,7 @@ Guards (in order):
   3. SecureRAGProvider — decrypt chunks in memory, never store plaintext
 """
 
-import logging
+import logging, datetime
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
@@ -93,6 +93,10 @@ def secure_query():
     # ------------------------------------------------------------------
 
     # Input firewall
+    # isoformat() on a tz-aware datetime already yields "+00:00"; don't append "Z".
+    now = datetime.datetime.now(datetime.timezone.utc)
+    timestamp_str = now.isoformat()
+
     inj, inj_score = firewall.detect_injection(question)
     if inj:
         _log_security_event(org_id, user_id, "firewall_injection_block",
@@ -103,12 +107,13 @@ def secure_query():
             action="firewall_injection_block",
             target_type="SecureQuery",
             metadata={"query": question[:200], "score": inj_score},
+            created_at=now
         )
         log_decision(question, {
             "decision": "BLOCK",
             "reason": "Firewall — Prompt Injection (encrypted pipeline)",
             "stopped_by": "Regex + ML Firewall",
-        })
+        }, timestamp=timestamp_str)
         return jsonify({
             "decision": "BLOCK",
             "reason": "Firewall — Prompt Injection",
@@ -269,12 +274,13 @@ def secure_query():
             "chunks_decrypted": len(docs),
             "chunks_filtered":  len(removed_chunks),
         },
+        created_at=now
     )
     log_decision(question, {
         "decision": "ALLOW",
         "reason":   "encrypted_pipeline",
         "sources":  [s.get("filename") for s in used_sources],
-    })
+    }, timestamp=timestamp_str)
 
     return jsonify({
         "decision": "ALLOW",

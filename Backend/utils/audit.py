@@ -4,10 +4,10 @@ Provides functions for logging all system actions.
 
 Observer pattern: external subscribers (e.g., AnomalyDetector) can be
 registered via register_subscriber(). After each successful audit log commit,
-every subscriber's on_security_event_dict() is called in a daemon thread so
-the logging pipeline is never blocked.
+every subscriber's on_security_event_dict() is called inline — scoring is
+cheap and running synchronously guarantees the AnomalyScore row is committed
+before the next event's audit write.
 """
-import threading
 from datetime import datetime, timezone
 from backend.database.db import db
 from backend.database.models import AuditLog
@@ -21,7 +21,7 @@ def register_subscriber(subscriber) -> None:
     _subscribers.append(subscriber)
 
 
-def log_audit(organization_id, user_id, action, target_type=None, target_id=None, metadata=None):
+def log_audit(organization_id, user_id, action, target_type=None, target_id=None, metadata=None, created_at=None):
     """
     Log an audit event
 
@@ -32,6 +32,7 @@ def log_audit(organization_id, user_id, action, target_type=None, target_id=None
         target_type: Type of target entity (e.g., 'User', 'Document')
         target_id: ID of target entity
         metadata: Additional metadata as dictionary
+        created_at: Optional timestamp to use for the log entry
     """
     try:
         audit_log = AuditLog(
@@ -41,12 +42,15 @@ def log_audit(organization_id, user_id, action, target_type=None, target_id=None
             target_type=target_type,
             target_id=target_id,
             meta_data=metadata,
-            created_at=datetime.now(timezone.utc)
+            created_at=created_at or datetime.now(timezone.utc)
         )
         db.session.add(audit_log)
         db.session.commit()
 
-        # Notify subscribers asynchronously (non-blocking)
+        # Notify subscribers synchronously. The previous threaded design raced
+        # on SQLite writes when two audit events (e.g. firewall_injection_block
+        # + rag_query) fired back-to-back, silently dropping AnomalyScore rows.
+        # Running inline keeps every event paired with its score.
         if _subscribers:
             event_dict = {
                 'id':             str(audit_log.audit_id),
@@ -57,11 +61,10 @@ def log_audit(organization_id, user_id, action, target_type=None, target_id=None
                 'details':        audit_log.meta_data or {},
             }
             for sub in _subscribers:
-                threading.Thread(
-                    target=sub.on_security_event_dict,
-                    args=(event_dict,),
-                    daemon=True,
-                ).start()
+                try:
+                    sub.on_security_event_dict(event_dict)
+                except Exception as sub_exc:
+                    print(f"Subscriber failed for audit_id={audit_log.audit_id}: {sub_exc}")
 
     except Exception as e:
         print(f"Error logging audit event: {e}")

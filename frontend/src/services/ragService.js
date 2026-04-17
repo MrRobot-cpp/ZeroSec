@@ -32,9 +32,22 @@ export async function queryRag(question) {
 
     const data = await response.json();
 
-    // Handle BLOCK decision from firewall
+    // BLOCK is a valid security response — surface it in the chat instead of
+    // throwing, so the Next.js dev overlay doesn't treat it as an error.
     if (data.decision === "BLOCK") {
-      throw new Error(`Query blocked by security firewall: ${data.reason || "Unknown reason"}`);
+      const reason = data.reason || "Unknown reason";
+      return {
+        answer:
+          data.answer ||
+          `Query blocked by security firewall: ${reason}`,
+        sources: data.sources || [],
+        metadata: {
+          decision: "BLOCK",
+          reason,
+          stopped_by: data.stopped_by,
+          ...data.metadata,
+        },
+      };
     }
 
     // Handle ALLOW decision
@@ -134,7 +147,17 @@ export async function querySecureRag(question) {
     const data = await response.json();
 
     if (data.decision === "BLOCK") {
-      throw new Error(`Blocked by security: ${data.reason || "Unknown reason"}`);
+      const reason = data.reason || "Unknown reason";
+      return {
+        answer: data.answer || `Blocked by security: ${reason}`,
+        sources: data.sources || [],
+        metadata: {
+          decision: "BLOCK",
+          reason,
+          stopped_by: data.stopped_by,
+          provider: data.provider,
+        },
+      };
     }
 
     return {

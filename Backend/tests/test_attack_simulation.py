@@ -363,7 +363,7 @@ class TestTC41_CanaryLeakageAlert:
         """Attacker re-uploads a copy of a watermarked document."""
         wm_resp = client.post(
             "/canary/watermark",
-            data={"file": (io.BytesIO(b"Confidential merger details — Project Atlas."),
+            data={"file": (io.BytesIO(b"Confidential merger details - Project Atlas."),
                            "atlas.txt")},
             content_type="multipart/form-data",
         )
@@ -441,7 +441,7 @@ class TestTC42_ChainedRedTeamAttack:
         # --- STEP 3: Canary exfiltration attempt ---
         wm_resp = client.post(
             "/canary/watermark",
-            data={"file": (io.BytesIO(b"Executive briefing — Confidential."), "exec_brief.txt")},
+            data={"file": (io.BytesIO(b"Executive briefing - Confidential."), "exec_brief.txt")},
             content_type="multipart/form-data",
         )
         if wm_resp.status_code == 200:

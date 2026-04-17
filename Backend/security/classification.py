@@ -31,15 +31,16 @@ _ADVBENCH_PKL = _MODELS_DIR / "advbench_detector.pkl"
 # THRESHOLDS
 # -------------------------
 # BERT standalone threshold: block without needing AdvBench confirmation.
-# Set high (0.93) because BERT over-fires on security-topic questions
-# (e.g. "describe social engineering attacks" = 0.90 — legitimate query).
-# At 0.93+ the model is highly confident it's an actual injection command.
-BERT_BLOCK_THRESHOLD = 0.93
+# Lowered from 0.93 to 0.82 — semantic Level 4 attacks (roleplay/hypothetical
+# framing) score 0.75-0.85 and were bypassing the old threshold.
+# False-positive risk is managed by the BENIGN_IGNORE_CONTEXTS check in
+# firewall.py which runs BEFORE this model and whitelists legitimate queries.
+BERT_BLOCK_THRESHOLD = 0.82
 
 # BERT "soft" zone: if score is in (BERT_SOFT_MIN, BERT_BLOCK_THRESHOLD)
 # and AdvBench ALSO says HARMFUL, block (both models must agree).
-# This catches moderately-phrased injections ("how to bypass firewall rules").
-BERT_SOFT_MIN = 0.75
+# Lowered from 0.75 to 0.65 to catch obfuscated mid-confidence injections.
+BERT_SOFT_MIN = 0.65
 
 # -------------------------
 # MODULE-LEVEL SINGLETONS (lazy)

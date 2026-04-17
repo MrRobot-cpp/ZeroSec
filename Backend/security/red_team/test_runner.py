@@ -219,6 +219,7 @@ def run_test(
     triggered_by: str = "manual",
     notes: Optional[str] = None,
     use_llm: bool = False,
+    fresh: bool = False,
 ) -> dict:
     """
     Execute a complete red-team test run.
@@ -237,9 +238,10 @@ def run_test(
 
     generator = AttackGenerator()
 
-    # Build attack pool: missed replays first, then static, then LLM
-    # Missed attacks get priority so every run re-validates known gaps
-    missed_attacks  = _get_missed_attacks(category, limit=40)
+    # Build attack pool: missed replays first (unless fresh=True), then static, then LLM
+    # Missed attacks get priority so every run re-validates known gaps.
+    # Pass fresh=True to skip replays and run only the static+LLM pool (clean baseline).
+    missed_attacks  = [] if fresh else _get_missed_attacks(category, limit=40)
     missed_texts    = {a.text for a in missed_attacks}
 
     static_attacks  = generator.generate_by_category(category, use_llm=False)

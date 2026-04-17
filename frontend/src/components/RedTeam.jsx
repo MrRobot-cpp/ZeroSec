@@ -85,6 +85,7 @@ export default function RedTeam() {
   // Control Panel State
   const [category, setCategory] = useState("all");
   const [useLlm, setUseLlm] = useState(false);
+  const [fresh, setFresh] = useState(false);
   const [notes, setNotes] = useState("");
   const [running, setRunning] = useState(false);
   const [latestResult, setLatestResult] = useState(null);
@@ -122,7 +123,7 @@ export default function RedTeam() {
     setRunning(true);
     setLatestResult(null);
     try {
-      const res = await apiClient.post("/api/redteam/run", { category, notes, use_llm: useLlm }, { timeout: 180000 });
+      const res = await apiClient.post("/api/redteam/run", { category, notes, use_llm: useLlm, fresh }, { timeout: 180000 });
       const data = await res.json();
       if (res.ok) {
         setLatestResult(data);
@@ -524,6 +525,22 @@ export default function RedTeam() {
                       style={useLlm ? { boxShadow: "0 0 8px rgba(79,70,229,0.35)" } : {}}
                     >
                       <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${useLlm ? "translate-x-5" : "translate-x-0.5"}`} />
+                    </button>
+                  </div>
+
+                  {/* Fresh Run toggle */}
+                  <div className="bg-[#0f141f] border border-gray-800 rounded px-3 py-2.5 flex items-center justify-between group transition-colors hover:border-emerald-500/30 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/3 to-teal-500/3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="relative z-10">
+                      <div className="text-[11px] font-semibold text-gray-300 group-hover:text-emerald-300 transition-colors">Fresh Run</div>
+                      <div className="text-[10px] text-gray-600 mt-0.5 max-w-[180px] leading-relaxed">Skip replaying prior failures — run only the static attack pool.</div>
+                    </div>
+                    <button
+                      onClick={() => setFresh(!fresh)}
+                      className={`relative z-10 w-10 h-5 rounded-full transition-colors ${fresh ? "bg-emerald-600" : "bg-gray-700"}`}
+                      style={fresh ? { boxShadow: "0 0 8px rgba(16,185,129,0.35)" } : {}}
+                    >
+                      <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${fresh ? "translate-x-5" : "translate-x-0.5"}`} />
                     </button>
                   </div>
 

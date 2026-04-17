@@ -57,6 +57,7 @@ def trigger_run():
     category = data.get("category", "all").lower()
     notes    = data.get("notes")
     use_llm  = bool(data.get("use_llm", False))
+    fresh    = bool(data.get("fresh", False))
 
     if category not in VALID_CATEGORIES:
         return jsonify({
@@ -88,6 +89,7 @@ def trigger_run():
             triggered_by = actor,
             notes        = notes,
             use_llm      = use_llm,
+            fresh        = fresh,
         )
         return jsonify(result), 200
     except Exception as exc:

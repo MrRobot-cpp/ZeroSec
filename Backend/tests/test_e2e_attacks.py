@@ -210,7 +210,7 @@ class TestE2E03_CanaryIndirectLeakage:
         # PHASE 1: watermark a document
         wm_resp = client.post(
             "/canary/watermark",
-            data={"file": (io.BytesIO(b"Project Ironclad — do not distribute."), "ironclad.txt")},
+            data={"file": (io.BytesIO(b"Project Ironclad - do not distribute."), "ironclad.txt")},
             content_type="multipart/form-data",
         )
         if wm_resp.status_code != 200:

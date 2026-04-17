@@ -275,7 +275,7 @@ class TestTC29_IndirectCanaryTrigger:
         # Get a real canary ID first
         wm_resp = client.post(
             "/canary/watermark",
-            data={"file": (io.BytesIO(b"Classified material — do not copy."), "classified.txt")},
+            data={"file": (io.BytesIO(b"Classified material - do not copy."), "classified.txt")},
             content_type="multipart/form-data",
         )
         if wm_resp.status_code != 200:

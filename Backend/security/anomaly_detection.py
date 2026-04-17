@@ -30,6 +30,8 @@ _PICKLE_PATH = _MODELS_DIR / "audit_anomaly.pkl"
 
 # Detection threshold for the NLP model
 ANOMALY_THRESHOLD = 0.55
+# Threshold for baseline deviation — vectors within this L2 distance are normal
+DEVIATION_THRESHOLD = 0.5
 
 @dataclass
 class SecurityEvent:
@@ -89,6 +91,99 @@ _FAILED_ACTIONS = {
 }
 
 
+class AuditFeatureEngineer:
+    """
+    Extracts the 6-dimensional UEBA feature vector from a window of SecurityEvent objects.
+
+    Features (index → name):
+      0  event_frequency   — events per minute over the window span
+      1  type_entropy      — Shannon entropy of action distribution
+      2  avg_severity      — mean severity score (high=1.0, med=0.5, low=0.1)
+      3  user_spike        — fraction of events from the single most active user
+      4  failed_ratio      — blocked/denied events / total
+      5  burst_score       — max events in any 60-second window / total
+    """
+
+    def transform(self, window) -> np.ndarray:
+        """
+        Transform a deque (or list) of SecurityEvent objects into a (6,) numpy array.
+        Returns a zero vector for windows with fewer than 2 events.
+        """
+        import math
+        from collections import Counter
+
+        events = list(window)
+        n = len(events)
+
+        if n < 2:
+            return np.zeros(6, dtype=float)
+
+        # Parse timestamps from SecurityEvent objects
+        timestamps = []
+        for evt in events:
+            ts = evt.timestamp if hasattr(evt, 'timestamp') else None
+            if ts is None:
+                continue
+            if isinstance(ts, str):
+                try:
+                    ts = datetime.fromisoformat(ts)
+                except ValueError:
+                    continue
+            if isinstance(ts, datetime):
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                timestamps.append(ts)
+
+        if len(timestamps) < 2:
+            return np.zeros(6, dtype=float)
+
+        timestamps.sort()
+        span_minutes = max(
+            (timestamps[-1] - timestamps[0]).total_seconds() / 60.0,
+            1 / 60.0,
+        )
+
+        # Feature 0: event_frequency
+        event_frequency = n / span_minutes
+
+        # Feature 1: type_entropy
+        actions = [getattr(evt, 'eventType', 'unknown') for evt in events]
+        counts = Counter(actions)
+        total = sum(counts.values())
+        type_entropy = -sum(
+            (c / total) * math.log2(c / total)
+            for c in counts.values() if c > 0
+        )
+
+        # Feature 2: avg_severity
+        sev_scores = [
+            _SEVERITY_SCORE.get(_ACTION_SEVERITY.get(a, 'low'), 0.1)
+            for a in actions
+        ]
+        avg_severity = sum(sev_scores) / n
+
+        # Feature 3: user_spike
+        user_counts = Counter(getattr(evt, 'userId', None) for evt in events)
+        user_spike = max(user_counts.values()) / n if user_counts else 0.0
+
+        # Feature 4: failed_ratio
+        failed = sum(1 for evt in events if getattr(evt, 'eventType', '') in _FAILED_ACTIONS)
+        failed_ratio = failed / n
+
+        # Feature 5: burst_score (two-pointer O(n))
+        left, max_in_window = 0, 1
+        for right in range(len(timestamps)):
+            while (timestamps[right] - timestamps[left]).total_seconds() > 60:
+                left += 1
+            max_in_window = max(max_in_window, right - left + 1)
+        burst_score = max_in_window / len(timestamps)
+
+        return np.array([
+            event_frequency, type_entropy, avg_severity,
+            user_spike, failed_ratio, burst_score,
+        ], dtype=float)
+
+
 class AnomalyDetector:
     """
     Real-time anomaly detector implementing the AuditSubscriber protocol.
@@ -111,6 +206,7 @@ class AnomalyDetector:
         self._vectorizer = None   # present only in TF-IDF pickles
         self._scaler     = None   # present in UEBA (feature-based) pickles
         self._baseline   = None   # numpy array of baseline feature means
+        self._baseline_alpha = 0.1   # exponential smoothing factor for baseline updates
         self._model_name: Optional[str] = None
         self._lock          = threading.Lock()
         self._window        = deque(maxlen=self._WINDOW_SIZE)  # rolling event window
@@ -123,6 +219,28 @@ class AnomalyDetector:
             'best_model': None,
         }
         self._load_model()
+
+    # ------------------------------------------------------------------
+    # Baseline tracking (used by AuditFeatureEngineer-based tests)
+    # ------------------------------------------------------------------
+
+    def updateBaseline(self, features: np.ndarray) -> None:
+        """Exponential moving average update of the feature baseline."""
+        if self._baseline is None:
+            self._baseline = np.array(features, dtype=float)
+        else:
+            alpha = self._baseline_alpha
+            self._baseline = alpha * np.array(features, dtype=float) + (1 - alpha) * self._baseline
+
+    def getCurrentBaseline(self) -> np.ndarray:
+        """Return current baseline vector, or zeros if not yet set."""
+        if self._baseline is None:
+            return np.zeros(6, dtype=float)
+        return self._baseline.copy()
+
+    def calculateDeviation(self, features: np.ndarray, baseline: np.ndarray) -> float:
+        """Return L2 distance between features and baseline."""
+        return float(np.linalg.norm(np.array(features, dtype=float) - np.array(baseline, dtype=float)))
 
     def on_security_event_dict(self, event_dict: dict) -> None:
         """Entry point called by audit.py subscriber mechanism."""
@@ -186,33 +304,65 @@ class AnomalyDetector:
             self._write_anomaly_score(event, score, anomaly_type, is_anomaly=True)
         # Do NOT write 0.0 scores — they bloat the DB and create noise in the UI.
 
-    def _score_features(self, text: str) -> float:
-        """Pass text through TF-IDF and get anomaly score from the model."""
-        if self._model is None or self._vectorizer is None:
+    def _score_features(self, features) -> float:
+        """
+        Score an input against the loaded model.
+        Accepts either:
+          - a numpy array (6,) from AuditFeatureEngineer.transform()
+          - a string for the legacy TF-IDF path
+        Returns 0.0 when no model is loaded (safe default).
+        """
+        if self._model is None:
             return 0.0
         try:
-            X = self._vectorizer.transform([text])
-            # For Isolation Forest, decision_function returns higher values for more normal points.
-            # Our notebook uses (0.5 - raw) to map it to a [0, 1] anomaly score.
-            raw = self._model.decision_function(X)[0]
-            score = float(np.clip(0.5 - raw, 0.0, 1.0))
-            return score
+            if isinstance(features, np.ndarray):
+                # UEBA feature-vector path (scaler required)
+                if self._scaler is None:
+                    return 0.0
+                scaled = self._scaler.transform(features.reshape(1, -1))
+                raw = self._model.decision_function(scaled)[0]
+                return float(np.clip(0.5 - raw, 0.0, 1.0))
+            else:
+                # Legacy TF-IDF text path
+                if self._vectorizer is None:
+                    return 0.0
+                X = self._vectorizer.transform([str(features)])
+                raw = self._model.decision_function(X)[0]
+                return float(np.clip(0.5 - raw, 0.0, 1.0))
         except Exception as exc:
             logger.error("Scoring failed: %s", exc)
             return 0.0
 
-    def determineAnomalyType(self, event: SecurityEvent, log_text: str) -> str:
-        """Simple classification based on content and action."""
+    def determineAnomalyType(self, event: SecurityEvent, features_or_text) -> str:
+        """
+        Classify the anomaly type from event + either a feature vector or log text.
+        Accepts both a numpy array (AuditFeatureEngineer output) and a plain string
+        (legacy log-text path) so both call sites work.
+        """
         ev = event.eventType.lower()
-        txt = log_text.lower()
+
+        # Feature-vector path: use numerical features for precise classification
+        if isinstance(features_or_text, np.ndarray):
+            failed_ratio = float(features_or_text[4]) if len(features_or_text) > 4 else 0.0
+            burst_score  = float(features_or_text[5]) if len(features_or_text) > 5 else 0.0
+            if 'canary' in ev:
+                return "Canary-related anomaly"
+            if failed_ratio > 0.4:
+                return "Spike in failed logins"
+            if burst_score > 0.5:
+                return "Velocity burst detected"
+            return "Unusual behavioral pattern"
+
+        # Legacy text path
+        txt = str(features_or_text).lower()
         if 'injection' in txt or 'ignore previous' in txt:
             return "Potential Prompt Injection"
         if 'bypass' in txt:
             return "Security Control Bypass Attempt"
         if 'canary' in ev:
-            return "Canary Token Triggered"
+            return "Canary-related anomaly"
         if 'access_denied' in ev:
-            return "Unauthorized Access Pattern"
+            return "Spike in failed logins"
         return "Unusual behavioral pattern"
 
     def sendAlert(self, anomaly: Anomaly) -> None:

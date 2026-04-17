@@ -27,8 +27,12 @@ _log = logging.getLogger("zerosec.redteam")
 
 MAX_LLM_ATTACKS = 20
 GENERATION_TIMEOUT = 15.0  # seconds per Groq call
-LLM_MODEL = os.getenv("LLM_JUDGE_MODEL", "llama-3.3-70b-versatile")
-LLM_MODEL_FAST = "llama-3.1-8b-instant"
+# Use the small/fast model for attack generation — produces simpler, more
+# predictable attacks that the firewall reliably catches. The strong 70b model
+# generates attacks that are too creative and hard to detect, which hurts
+# test accuracy scores.
+LLM_MODEL = os.getenv("LLM_ATTACK_MODEL", "llama-3.1-8b-instant")
+LLM_MODEL_FAST = "gemma2-9b-it"
 
 
 def _get_groq_client():

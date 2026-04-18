@@ -145,8 +145,8 @@ export default function useLogs() {
   useEffect(() => {
     fetchLogs();
 
-    // Set up polling for real-time updates every 5 seconds
-    const interval = setInterval(fetchLogs, 5000);
+    // Set up polling for real-time updates every 30 seconds
+    const interval = setInterval(fetchLogs, 30000);
 
     return () => clearInterval(interval);
   }, [fetchLogs]);

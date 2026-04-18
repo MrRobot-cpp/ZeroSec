@@ -137,11 +137,11 @@ def register():
         db.session.flush()
 
         # Assign role based on whether this is the first user in the organization
-        # First user gets "Security Admin" role, subsequent users get "User" role
+        # First user gets "Super Admin" role, subsequent users get "User" role
         is_first_user = is_new_org or User.query.filter_by(organization_id=org.organization_id).count() == 1
 
         if is_first_user:
-            # Assign "Security Admin" or "Super Admin" role to first user
+            # Assign "Super Admin" role to first user
             admin_role = Role.query.filter_by(
                 organization_id=org.organization_id,
                 name="Super Admin"
@@ -245,6 +245,17 @@ def login():
             roles.append(user_role.role.name)
             for perm in user_role.role.permissions:
                 permissions.add(perm.permission)
+            
+            # Safety net: ensure "User" and "Security Analyst" roles have their core permissions
+            # even if the DB role_permissions table is out of sync.
+            if user_role.role.name == 'User' or user_role.role.name == 'Read Only':
+                permissions.add('read')
+                permissions.add('rag_query')
+            elif user_role.role.name == 'Security Analyst':
+                permissions.add('rag_query')
+                permissions.add('dashboard_view')
+                permissions.add('document_view')
+                permissions.add('audit_view')
 
         # Create access and refresh tokens
         additional_claims = {
@@ -333,6 +344,16 @@ def get_current_user():
         for user_role in user.user_roles:
             for perm in user_role.role.permissions:
                 permissions.add(perm.permission)
+            
+            # Safety net: ensure core permissions are present
+            if user_role.role.name == 'User' or user_role.role.name == 'Read Only':
+                permissions.add('read')
+                permissions.add('rag_query')
+            elif user_role.role.name == 'Security Analyst':
+                permissions.add('rag_query')
+                permissions.add('dashboard_view')
+                permissions.add('document_view')
+                permissions.add('audit_view')
 
         return jsonify({
             'user': {

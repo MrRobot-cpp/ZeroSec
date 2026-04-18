@@ -48,6 +48,8 @@ export default function CanaryWatermark({ fileInputRef, setUploading, uploading 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', 'http://localhost:5200/canary/watermark');
         xhr.responseType = 'blob';
+        const _token = localStorage.getItem('zerosec_token');
+        if (_token) xhr.setRequestHeader('Authorization', `Bearer ${_token}`);
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
             setProgress(Math.round((e.loaded / e.total) * 100));

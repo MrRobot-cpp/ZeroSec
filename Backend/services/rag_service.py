@@ -253,26 +253,14 @@ def query_rag(question: str, org_id: int = None, user_id: int = None) -> dict:
     if regex_redacted:
         _log.warning("[PII] Pass 1 (regex) — PII redacted from response for query: %s", question[:100])
 
-    # Pass 2: LLM judge PII scan (catches obfuscated/spelled-out/split PII regex missed)
-    from backend.security.llm_judge import scan_pii
-    after_llm_pii = scan_pii(final_answer)
-
-    llm_redacted = after_llm_pii != final_answer
-    if llm_redacted:
-        _log.warning("[PII] Pass 2 (LLM) — obfuscated PII caught by judge for query: %s", question[:100])
-        final_answer = after_llm_pii
-
-    # Log if either pass redacted something
-    if regex_redacted or llm_redacted:
-        stopped_by = "PII Redaction Engine"
-        if llm_redacted:
-            stopped_by = "PII Redaction Engine + LLM Judge"
+    # Log if regex redacted something
+    if regex_redacted:
         _log_security_event(org_id, user_id, "pii_data_leak",
                             "pii_redacted_in_response", question, 1.0)
         log_decision(question, {
             "decision": "BLOCK",
             "reason": "Data Leak — PII redacted from response",
-            "stopped_by": stopped_by,
+            "stopped_by": "PII Redaction Engine",
         })
 
     return {

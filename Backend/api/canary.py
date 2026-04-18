@@ -102,7 +102,12 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @canary_bp.route("/canary/watermark", methods=["POST"])
+@jwt_required(optional=True)
 def watermark():
+    from flask_jwt_extended import get_jwt
+    claims = get_jwt()
+    caller_org_id = claims.get('organization_id', 1) if claims else 1
+
     if "file" not in request.files:
         return jsonify({"error": "Missing file"}), 400
     file = request.files["file"]
@@ -140,7 +145,7 @@ def watermark():
                     # Create a new record linked to document_id=0 (no doc yet)
                     record = CanaryToken(
                         document_id=0,
-                        organization_id=1,
+                        organization_id=caller_org_id,
                         token_hash=token_hash,
                         document_name=filename,
                         trigger_source=None,

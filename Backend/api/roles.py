@@ -227,7 +227,7 @@ def delete_role(role_id):
             return jsonify({'error': 'Unauthorized'}), 403
 
         # Prevent deletion of default roles
-        if role.name in ['Admin', 'User', 'SecurityAdmin']:
+        if role.name in ['Super Admin', 'Admin', 'User', 'Security Analyst']:
             return jsonify({'error': 'Cannot delete default roles'}), 403
 
         # Check if users are assigned to this role

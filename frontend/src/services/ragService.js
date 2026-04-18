@@ -17,13 +17,15 @@ export async function queryRag(question) {
     // Backend response format from rag_service.py:
     // - BLOCK: { "decision": "BLOCK", "reason": "..." }
     // - ALLOW: { "decision": "ALLOW", "answer": "..." }
+    const _ctrl = new AbortController();
+    const _tid = setTimeout(() => _ctrl.abort(), 120000);
     const response = await fetch(`${API_BASE_URL}/query`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),
+      signal: _ctrl.signal,
     });
+    clearTimeout(_tid);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -32,22 +34,9 @@ export async function queryRag(question) {
 
     const data = await response.json();
 
-    // BLOCK is a valid security response — surface it in the chat instead of
-    // throwing, so the Next.js dev overlay doesn't treat it as an error.
+    // Handle BLOCK decision from firewall
     if (data.decision === "BLOCK") {
-      const reason = data.reason || "Unknown reason";
-      return {
-        answer:
-          data.answer ||
-          `Query blocked by security firewall: ${reason}`,
-        sources: data.sources || [],
-        metadata: {
-          decision: "BLOCK",
-          reason,
-          stopped_by: data.stopped_by,
-          ...data.metadata,
-        },
-      };
+      throw new Error(`Query blocked by security firewall: ${data.reason || "Unknown reason"}`);
     }
 
     // Handle ALLOW decision
@@ -127,7 +116,7 @@ export async function clearChatHistory() {
  */
 export async function querySecureRag(question) {
   try {
-    const response = await apiClient.post("/api/secure-query", { question });
+    const response = await apiClient.post("/api/secure-query", { question }, { timeout: 120000 });
 
     if (response.status === 401) {
       throw new Error("Session expired — please log in again");
@@ -147,17 +136,7 @@ export async function querySecureRag(question) {
     const data = await response.json();
 
     if (data.decision === "BLOCK") {
-      const reason = data.reason || "Unknown reason";
-      return {
-        answer: data.answer || `Blocked by security: ${reason}`,
-        sources: data.sources || [],
-        metadata: {
-          decision: "BLOCK",
-          reason,
-          stopped_by: data.stopped_by,
-          provider: data.provider,
-        },
-      };
+      throw new Error(`Blocked by security: ${data.reason || "Unknown reason"}`);
     }
 
     return {

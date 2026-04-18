@@ -109,15 +109,17 @@ export default function Login() {
 
     try {
       // Call login via AuthContext so React state is updated immediately
-      await login(sanitizedUsername, sanitizedPassword);
+      const result = await login(sanitizedUsername, sanitizedPassword);
 
       // Reset login attempts on success
       setLoginAttempts(0);
 
       console.log("Login successful");
 
-      // Redirect to dashboard after successful login
-      router.push("/dashboard");
+      // Redirect based on role — admins go to dashboard, regular users go to /rag
+      const permissions = result?.user?.permissions || [];
+      const isAdmin = permissions.includes('admin') || permissions.includes('admin_full');
+      router.push(isAdmin ? "/dashboard" : "/rag");
 
     } catch (err) {
       const newAttempts = loginAttempts + 1;

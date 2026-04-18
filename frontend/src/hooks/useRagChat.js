@@ -6,7 +6,13 @@ import { queryRag, querySecureRag } from "@/services/ragService";
  * @param {boolean} encrypted - If true, uses the encrypted pipeline (/api/secure-query)
  */
 export function useRagChat({ encrypted = false } = {}) {
-  const storageKey = encrypted ? 'ragChatHistory_encrypted' : 'ragChatHistory';
+  // Scope chat history per user so different accounts don't share messages
+  const userId = typeof window !== 'undefined'
+    ? (JSON.parse(localStorage.getItem('zerosec_user') || '{}').user_id || 'guest')
+    : 'guest';
+  const storageKey = encrypted
+    ? `ragChatHistory_encrypted_${userId}`
+    : `ragChatHistory_${userId}`;
 
   // Initialize messages from localStorage
   const [messages, setMessages] = useState(() => {

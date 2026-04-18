@@ -214,6 +214,13 @@ def scan_document(filename, content):
     return issues
 
 def _ingest_high_sensitivity(raw_bytes: bytes, filename: str, doc_id: str, text_content: str) -> None:
+    # Canary HTML wrappers are tracking files, not real documents — never ingest them
+    if filename.endswith('_canary.html') or filename.endswith('_canary.htm'):
+        import logging
+        logging.getLogger("zerosec.documents").info(
+            "[HIGH ingest] skipping canary HTML file: %s", filename
+        )
+        return
     """
     Pre-storage encrypted ingest pipeline for HIGH sensitivity documents.
 

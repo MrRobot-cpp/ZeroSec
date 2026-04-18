@@ -132,26 +132,25 @@ def create_user():
         )
 
         # Assign role to user (RBAC)
-        role_name = data.get('role')
-        if role_name:
-            from backend.database.models import Role
-            from flask_jwt_extended import get_jwt
+        role_name = data.get('role') or 'User'  # default to User if none provided
+        from backend.database.models import Role
+        from flask_jwt_extended import get_jwt
 
-            # Security Analysts cannot assign Admin or Security Analyst roles
-            caller_is_admin = 'admin' in get_jwt().get('permissions', [])
-            restricted_roles = {'Admin', 'Super Admin', 'Security Analyst'}
-            if not caller_is_admin and role_name in restricted_roles:
-                return jsonify({
-                    'error': f'You do not have permission to assign the "{role_name}" role'
-                }), 403
+        # Security Analysts cannot assign Admin or Security Analyst roles
+        caller_is_admin = 'admin' in get_jwt().get('permissions', [])
+        restricted_roles = {'Admin', 'Super Admin', 'Security Analyst'}
+        if not caller_is_admin and role_name in restricted_roles:
+            return jsonify({
+                'error': f'You do not have permission to assign the "{role_name}" role'
+            }), 403
 
-            role = Role.query.filter_by(
-                organization_id=organization_id,
-                name=role_name
-            ).first()
+        role = Role.query.filter_by(
+            organization_id=organization_id,
+            name=role_name
+        ).first()
 
-            if role:
-                RoleRepository.assign_role_to_user(new_user.user_id, role.role_id)
+        if role:
+            RoleRepository.assign_role_to_user(new_user.user_id, role.role_id)
 
         # Refresh user object to get updated relationships
         db.session.expire(new_user)

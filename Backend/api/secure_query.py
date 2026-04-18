@@ -257,9 +257,6 @@ def secure_query():
 
     final_answer = firewall.redact_pii(answer)
 
-    from backend.security.llm_judge import scan_pii
-    final_answer = scan_pii(final_answer)
-
     # ------------------------------------------------------------------
     # Audit log — decryption event
     # ------------------------------------------------------------------

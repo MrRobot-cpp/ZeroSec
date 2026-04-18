@@ -55,10 +55,12 @@ export default function useDocuments() {
 
   const remove = useCallback(async (documentId) => {
     setError(null);
-    // Optimistic update — remove immediately
+    // Optimistic update — remove immediately from UI
     setDocuments(prev => prev.filter(d => d.id !== documentId));
     try {
       const result = await deleteDocument(documentId);
+      // Sync from server to confirm deletion is persisted
+      fetchDocuments();
       return result;
     } catch (err) {
       // Rollback on failure

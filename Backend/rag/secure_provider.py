@@ -74,6 +74,11 @@ class SecureRAGProvider(BaseRAGProvider):
         self._hmac_salt  = hmac_salt
         self._embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
         self._vectorstore: Chroma | None = None
+
+        # Reusable Groq client — avoid TCP reconnect on every generate() call
+        api_key = os.getenv("GROQ_API_KEY")
+        self._groq_client = GroqClient(api_key=api_key) if api_key else None
+
         self._cleanup_legacy_persist_dir()
         self._init_vectorstore()
         try:
@@ -324,12 +329,10 @@ class SecureRAGProvider(BaseRAGProvider):
         Groq LLM generation — hybrid mode.
         Retrieval and embeddings stay local; only the prompt reaches Groq.
         """
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
+        if not self._groq_client:
             raise ValueError("GROQ_API_KEY not set — required for encrypted chat LLM")
 
-        client = GroqClient(api_key=api_key)
-        response = client.chat.completions.create(
+        response = self._groq_client.chat.completions.create(
             model=GROQ_LLM_MODEL,
             temperature=GROQ_TEMPERATURE,
             max_tokens=GROQ_MAX_TOKENS,

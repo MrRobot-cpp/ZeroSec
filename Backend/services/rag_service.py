@@ -116,6 +116,12 @@ def query_rag(question: str, org_id: int = None, user_id: int = None) -> dict:
             "sources": []
         }
 
+    # 1b. PII request detection — flag and log, but let through for redacted answer
+    _pii_request_flagged = firewall.detect_pii_request(question)
+    if _pii_request_flagged:
+        _log_security_event(org_id, user_id, "pii_data_leak",
+                            "pii_request_detected", question, 1.0)
+
     # Check for Canary Tokens in input question
     if firewall._check_canary_tokens(question):
         _log_security_event(org_id, user_id, "firewall_canary_block",
@@ -253,14 +259,22 @@ def query_rag(question: str, org_id: int = None, user_id: int = None) -> dict:
     if regex_redacted:
         _log.warning("[PII] Pass 1 (regex) — PII redacted from response for query: %s", question[:100])
 
-    # Log if regex redacted something
     if regex_redacted:
         _log_security_event(org_id, user_id, "pii_data_leak",
                             "pii_redacted_in_response", question, 1.0)
         log_decision(question, {
-            "decision": "BLOCK",
-            "reason": "Data Leak — PII redacted from response",
+            "decision": "ALLOW",
+            "reason": "PII Detected / Redacted",
             "stopped_by": "PII Redaction Engine",
+        })
+    elif _pii_request_flagged:
+        # Query asked for PII but LLM didn't expose any raw PII — still log and redact
+        # Force-replace any name-like answer with <REDACTED> so nothing leaks
+        final_answer = "<REDACTED>"
+        log_decision(question, {
+            "decision": "ALLOW",
+            "reason": "PII Detected / Redacted",
+            "stopped_by": "PII Request Firewall",
         })
 
     return {

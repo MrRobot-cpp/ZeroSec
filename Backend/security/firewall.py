@@ -363,6 +363,42 @@ def _preprocess_injection(text: str) -> str:
     return text
 
 
+# PII request detection patterns
+_PII_FIELD_RE = (
+    r'phone(?:\s*number)?|mobile|cell(?:ular)?|telephone'
+    r'|email(?:\s*address)?'
+    r'|(?:home|mailing|physical|street|postal|residential)\s+address|address'
+    r'|ssn|social\s+security(?:\s+number)?'
+    r'|credit\s+card(?:\s+number)?|card\s+number|cvv|bank\s+account'
+    r'|password|passphrase|\bpin\b'
+    r'|date\s+of\s+birth|dob|birthday'
+    r'|location|whereabouts|coordinates'
+    r'|personal\s+(?:info(?:rmation)?|data|details)'
+    r'|private\s+(?:info(?:rmation)?|data|details)'
+)
+_PII_VERB_RE = (
+    r"what(?:'s|\s+is|\s+are)|give\s+(?:me\s+)?|tell\s+(?:me\s+)?"
+    r'|show\s+(?:me\s+)?|find\s+(?:me\s+)?|get\s+(?:me\s+)?'
+    r'|provide\s+(?:me\s+)?|share\s+(?:with\s+me\s+)?'
+    r'|reveal|look\s*up|lookup|fetch|retrieve'
+)
+_PII_REQUEST_RE = re.compile(
+    r'(?:'
+    r'(?:' + _PII_VERB_RE + r')(?:.{0,40}?)(?:\w+(?:\'s|s\')?\s+)?(?:' + _PII_FIELD_RE + r')'
+    r'|\w+(?:\'s|s\')\s+(?:' + _PII_FIELD_RE + r')'
+    r'|(?:' + _PII_FIELD_RE + r')\s+(?:of|for)\s+\w+'
+    r')',
+    re.IGNORECASE,
+)
+
+
+def detect_pii_request(text: str) -> bool:
+    """Detect queries that ask for someone's personal data (phone, email, SSN, etc.)."""
+    if not text or len(text.strip()) < MIN_TEXT_LENGTH:
+        return False
+    return bool(_PII_REQUEST_RE.search(text))
+
+
 # -------------------------
 # PUBLIC API
 # -------------------------

@@ -283,5 +283,5 @@ def secure_query():
         "decision": "ALLOW",
         "answer":   final_answer,
         "sources":  used_sources,
-        "provider": "secure_local",
+        "provider": generation.provider,
     })

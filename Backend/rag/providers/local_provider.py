@@ -12,12 +12,13 @@ class LocalRAGProvider(BaseRAGProvider):
     Requires Ollama running locally with llama2 and nomic-embed-text models pulled.
     """
 
-    LLM_MODEL = "llama2"
+    LLM_MODEL = "llama3.2:latest"
     LLM_OPTIONS = {
         "temperature": 0.3,
         "top_p": 0.9,
         "top_k": 40,
-        "num_predict": 256,
+        "num_predict": 512,
+        "num_ctx": 2048,
         "repeat_penalty": 1.15,
     }
 

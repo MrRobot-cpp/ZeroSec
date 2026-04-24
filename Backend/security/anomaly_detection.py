@@ -384,6 +384,13 @@ class AnomalyDetector:
                 if score > best_score:
                     best_score, best_type = score, f"Repeated query x{repeats}"
 
+        # Rule D: single high-severity action is inherently suspicious — score it immediately
+        if event.eventType in _FAILED_ACTIONS:
+            base = _SEVERITY_SCORE.get(_ACTION_SEVERITY.get(event.eventType, 'low'), 0.1)
+            score = min(1.0, 0.55 + base * 0.45)
+            if score > best_score:
+                best_score, best_type = score, f"High-severity event: {event.eventType}"
+
         return best_score, best_type
 
     def _score_features(self, features) -> float:

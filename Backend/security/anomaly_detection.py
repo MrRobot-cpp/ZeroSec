@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import warnings
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -480,7 +482,10 @@ class AnomalyDetector:
         try:
             try:
                 import joblib
-                payload = joblib.load(_PICKLE_PATH)
+                from sklearn.exceptions import InconsistentVersionWarning
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", InconsistentVersionWarning)
+                    payload = joblib.load(_PICKLE_PATH)
             except ImportError:
                 with open(_PICKLE_PATH, 'rb') as fh:
                     payload = pickle.load(fh)

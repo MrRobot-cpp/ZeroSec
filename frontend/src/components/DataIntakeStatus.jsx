@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import apiClient from "../services/apiClient";
 
 export default function DataIntakeStatus() {
   const [documents, setDocuments] = useState([]);
@@ -13,7 +14,7 @@ export default function DataIntakeStatus() {
 
   const fetchDocuments = async () => {
     try {
-      const response = await fetch("http://localhost:5200/documents");
+      const response = await apiClient.get("/documents");
       const data = await response.json();
       setDocuments(data.documents || []);
     } catch (error) {

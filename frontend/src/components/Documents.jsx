@@ -323,11 +323,11 @@ export default function Documents() {  const router = useRouter();
             />
             <label
               htmlFor="file-upload"
-              className={`px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium cursor-pointer transition-all duration-200 inline-flex items-center gap-2 ${
-                uploading ? "opacity-50 cursor-not-allowed" : ""
+              className={`px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg hover:shadow-blue-500/25 text-white rounded-xl font-semibold cursor-pointer transition-all duration-300 transform active:scale-95 inline-flex items-center gap-2 ${
+                uploading ? "opacity-50 cursor-not-allowed scale-100" : ""
               }`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
               {uploading ? "Uploading..." : "Upload Document"}
@@ -444,18 +444,17 @@ export default function Documents() {  const router = useRouter();
                       {formatDate(doc.uploaded_at)}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 items-center">
                         <button
                           onClick={() => viewDocument(doc.id)}
-                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm transition-colors"
+                          className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 font-medium rounded-lg text-xs transition-all hover:shadow-[0_0_10px_rgba(59,130,246,0.2)]"
                         >
                           View
                         </button>
                         {doc.sensitivity?.toLowerCase() === "high" && (
                           <button
                             onClick={() => setVaultDoc(doc)}
-                            className="px-3 py-1 rounded text-sm transition-colors font-medium"
-                            style={{ background: '#29b519', color: '#ffffff' }}
+                            className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-medium rounded-lg text-xs transition-all hover:shadow-[0_0_10px_rgba(16,185,129,0.2)]"
                             title="View encrypted cipher data"
                           >
                             Cipher
@@ -463,7 +462,7 @@ export default function Documents() {  const router = useRouter();
                         )}
                         <button
                           onClick={() => setDeleteConfirm({ id: doc.id, name: doc.name })}
-                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm transition-colors"
+                          className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 font-medium rounded-lg text-xs transition-all hover:shadow-[0_0_10px_rgba(244,63,94,0.2)]"
                         >
                           Delete
                         </button>
@@ -487,18 +486,18 @@ export default function Documents() {  const router = useRouter();
               <span className="font-semibold text-white">&quot;{deleteConfirm.name}&quot;</span>?
               {" "}This action cannot be undone.
             </p>
-            <div className="flex gap-3 justify-end">
+            <div className="flex gap-3 justify-end mt-2">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+                className="px-5 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-600 text-white font-medium rounded-xl transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm.id, deleteConfirm.name)}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded transition-colors"
+                className="px-5 py-2.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 shadow-lg hover:shadow-rose-500/25 text-white font-semibold rounded-xl transition-all duration-300 transform active:scale-95"
               >
-                Delete
+                Delete Document
               </button>
             </div>
           </div>

@@ -54,7 +54,7 @@ export default function Dashboard() {
         )}
 
         {/* Top Row: 3 Components */}
-        <div className="grid grid-cols-3 gap-4 flex-1 mb-4">
+        <div className="grid grid-cols-3 gap-4 flex-1 mb-4 min-h-0">
           <SecurityScore
             logs={logs}
             securityStats={dashboardData.security}
@@ -69,7 +69,7 @@ export default function Dashboard() {
         </div>
 
         {/* Bottom Row: 3 Components */}
-        <div className="grid grid-cols-3 gap-4 flex-1">
+        <div className="grid grid-cols-3 gap-4 flex-1 min-h-0">
           <BlockedAttacks
             logs={logs}
           />

@@ -60,7 +60,7 @@ def _get_default_patterns() -> Dict:
     return {
         'pii': {
             'email': {'pattern': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', 'flags': []},
-            'phone': {'pattern': r'\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]\d{4}\b', 'flags': []},
+            'phone': {'pattern': r'(?<!\d)(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]\d{4}(?!\d)', 'flags': []},
             'phone_intl': {'pattern': r'(?<!\w)\+\d{1,3}[-.\s]\d{1,4}[-.\s]\d{1,4}[-.\s]\d{1,9}(?!\d)', 'flags': []},
             'phone_eg': {'pattern': r'\b0[12][0-9]{9}\b', 'flags': []},
             'ssn': {'pattern': r'\b\d{3}[-\s]+\d{2}[-\s]+\d{4}\b', 'flags': []},

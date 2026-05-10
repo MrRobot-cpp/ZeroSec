@@ -17,10 +17,10 @@ EMBEDDING_MODEL = "nomic-embed-text"  # Proper embedding model for semantic sear
 CHUNK_SIZE = 1000  # Larger chunks = fewer chunks, more context per chunk
 CHUNK_OVERLAP = 200  # Higher overlap preserves context at chunk boundaries
 
-# Retriever config - tuned for better recall
-TOP_K = 10  # Retrieve more candidates
-DISTANCE_THRESHOLD = 1.2  # Increased: allow more chunks through (lower = stricter)
-MAX_RESULTS = 5  # Return more context chunks
+# Retriever config — nomic-embed-text produces L2 distances typically in 0.3–1.8 range
+TOP_K = 10
+DISTANCE_THRESHOLD = 1.8  # allow relevant chunks; real irrelevant ones score > 2.0
+MAX_RESULTS = 5
 
 # Global cache
 _vectorstore_cache = None
@@ -225,7 +225,7 @@ def retrieve_with_scores(query: str, force_reload=False):
     scored_results.sort(key=lambda x: x[1], reverse=True)
 
     # Drop low-quality chunks that add noise
-    scored_results = [(doc, score) for doc, score in scored_results if score >= 0.45]
+    scored_results = [(doc, score) for doc, score in scored_results if score >= 0.35]
 
     # Limit to max results
     scored_results = scored_results[:MAX_RESULTS]

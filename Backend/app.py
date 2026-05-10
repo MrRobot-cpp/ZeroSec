@@ -91,7 +91,8 @@ def query_route():
         except Exception:
             pass
 
-        result = query_rag(question)
+        result = query_rag(question, org_id=org_id, user_id=user_id)
+        print(f"--- RAG RESULT DEBUG --- Decision: {result.get('decision')}, Reason: {result.get('reason')}")
         log_decision(question, result)
 
         # Log audit event for anomaly detection
@@ -103,7 +104,8 @@ def query_route():
             metadata={
                 "query": question[:200],
                 "decision": result.get("decision", "ALLOW"),
-                "reason": result.get("reason", "N/A")
+                "reason": result.get("reason", "Encrypted RAG Query"),
+                "stopped_by": result.get("stopped_by", "Encrypted Pipeline")
             }
         )
 
@@ -157,19 +159,23 @@ def logs():
 
         # Also fetch any audit logs that have anomaly detections but are older
         # than the last 100 — they must always be visible in the security log.
-        from backend.database.models import AnomalyScore
-        flagged_audit_ids = [
-            r.audit_id for r in
-            AnomalyScore.query.filter(
-                AnomalyScore.is_anomaly == True,
-                AnomalyScore.organization_id == organization_id,
-            ).with_entities(AnomalyScore.audit_id).all()
-            if r.audit_id not in recent_ids
-        ]
-        older_flagged_logs = (
-            AuditLog.query.filter(AuditLog.audit_id.in_(flagged_audit_ids)).all()
-            if flagged_audit_ids else []
-        )
+        older_flagged_logs = []
+        try:
+            from backend.database.models import AnomalyScore
+            flagged_audit_ids = [
+                r.audit_id for r in
+                AnomalyScore.query.filter(
+                    AnomalyScore.is_anomaly == True,
+                    AnomalyScore.organization_id == organization_id,
+                ).with_entities(AnomalyScore.audit_id).all()
+                if r.audit_id not in recent_ids
+            ]
+            if flagged_audit_ids:
+                older_flagged_logs = AuditLog.query.filter(
+                    AuditLog.audit_id.in_(flagged_audit_ids)
+                ).all()
+        except Exception as _e:
+            print(f"[/logs] AnomalyScore query skipped: {_e}")
 
         audit_logs = recent_audit_logs + older_flagged_logs
 
@@ -190,6 +196,8 @@ def logs():
             'pii_data_leak': 'Data Leak — PII Redacted in Response',
             'unauthorized_access': 'Unauthorized Access',
             'policy_violation': 'Policy Violation',
+            'encrypted_query': 'Encrypted RAG Query',
+            'rag_query': 'RAG Query',
         }
         STOPPED_BY_MAP = {
             'llm_judge_block': 'LLM Judge (Groq)',
@@ -197,6 +205,8 @@ def logs():
             'firewall_canary_block': 'Canary Detection',
             'pii_data_leak': 'PII Redaction Engine',
             'canary_token_triggered': 'Canary Triggers',
+            'encrypted_query': 'Encrypted Pipeline',
+            'rag_query': 'RAG Pipeline',
         }
 
         # Indexing for deduplication (Key: timestamp to-the-second + query snippet)
@@ -216,9 +226,13 @@ def logs():
         # 1. Process Audit Logs and overwrite/merge with Firewall logs
         audit_ids = [log.audit_id for log in audit_logs]
         score_map = {}
-        if audit_ids:
-            scores = AnomalyScore.query.filter(AnomalyScore.audit_id.in_(audit_ids)).all()
-            score_map = {s.audit_id: s for s in scores}
+        try:
+            if audit_ids:
+                from backend.database.models import AnomalyScore as _AS
+                scores = _AS.query.filter(_AS.audit_id.in_(audit_ids)).all()
+                score_map = {s.audit_id: s for s in scores}
+        except Exception as _e:
+            print(f"[/logs] score_map query skipped: {_e}")
 
         for log in audit_logs:
             # Skip system-internal anomaly bookkeeping events — they are audit
@@ -239,11 +253,11 @@ def logs():
             # Create a rich audit entry
             entry = {
                 'id': log.audit_id,
-                'timestamp': log.created_at.isoformat(),
+                'timestamp': log.created_at.isoformat() + ('Z' if not log.created_at.tzinfo else ''),
                 'query': query_text,
-                'decision': 'BLOCK' if log.action in BLOCK_ACTIONS else 'ALLOW',
-                'reason': REASON_MAP.get(log.action, log.target_type or log.action),
-                'stopped_by': STOPPED_BY_MAP.get(log.action, username),
+                'decision': meta.get('decision') or ('BLOCK' if log.action in BLOCK_ACTIONS else 'ALLOW'),
+                'reason': meta.get('reason') or REASON_MAP.get(log.action, log.target_type or log.action),
+                'stopped_by': meta.get('stopped_by') or STOPPED_BY_MAP.get(log.action, username),
                 'action': log.action,
                 'metadata': meta,
                 'type': 'audit',
@@ -458,7 +472,10 @@ def legacy_delete_document(filename):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == "__main__":
-    from backend.scripts.download_models import download_all
-    download_all()
+    import os
+    # download_all only on the first process start, not on every reloader cycle
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        from backend.scripts.download_models import download_all
+        download_all()
     start_log_poller()
-    app.run(host="0.0.0.0", port=5200, debug=False)
+    app.run(host="0.0.0.0", port=5200, debug=True, use_reloader=True)

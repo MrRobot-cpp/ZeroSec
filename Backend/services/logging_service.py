@@ -24,10 +24,16 @@ def log_decision(query, result):
         "stopped_by": result.get("stopped_by", "-"),
     }
 
-    # Save to CSV
-    with LOG_FILE.open("a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=entry.keys())
-        writer.writerow(entry)
+    try:
+        LOG_DIR.mkdir(exist_ok=True)
+        if not LOG_FILE.exists():
+            with LOG_FILE.open("w", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow(["timestamp", "query", "decision", "reason", "stopped_by"])
+        with LOG_FILE.open("a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=entry.keys())
+            writer.writerow(entry)
+    except Exception as e:
+        print(f"[logging_service] CSV write failed: {e}")
 
     # Push to queue for streaming
     queue.put(json.dumps(entry))

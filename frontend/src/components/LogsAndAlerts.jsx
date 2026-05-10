@@ -46,6 +46,24 @@ export default function LogsAndAlerts() {
         </div>
       )}
 
+      {/* Diagnostic banner */}
+      <div className="bg-gray-800/50 border border-gray-700 text-gray-300 px-4 py-2 rounded-lg text-sm flex flex-wrap items-center gap-4">
+        <span>Fetched: <span className="font-mono text-blue-300">{logsData.logs.length}</span> logs</span>
+        <span>After filters: <span className="font-mono text-green-300">{logsData.getFilteredLogs().length}</span></span>
+        <span>Alerts: <span className="font-mono text-orange-300">{logsData.alerts.length}</span></span>
+        <span>Filtered alerts: <span className="font-mono text-orange-300">{logsData.getFilteredAlerts().length}</span></span>
+        <span>Filters: <span className="font-mono text-purple-300">{JSON.stringify(logsData.filters)}</span></span>
+        {logsData.error && (
+          <span>Error: <span className="font-mono text-red-300">{logsData.error}</span></span>
+        )}
+        <button
+          onClick={() => logsData.applyFilters({ type: "all", decision: "all", search: "", alertType: "all", severity: "all" })}
+          className="ml-auto px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs"
+        >
+          Reset All Filters
+        </button>
+      </div>
+
       {/* Tab Navigation */}
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-1 inline-flex gap-1">
         {tabs.map((tab) => (

@@ -195,10 +195,20 @@ def secure_query():
     for removed in removed_chunks:
         reason   = removed.get("reason", "security_filter")
         filename = removed.get("filename", "unknown")
+        if reason == "canary_token_detected":
+            stopped_by = "Canary Detection"
+        elif reason == "llm_judge_malicious":
+            stopped_by = "LLM Judge (Groq)"
+        else:
+            stopped_by = "Regex + ML Firewall"
+        if reason == "canary_token_detected":
+            display_reason = f"Canary Token triggered by retrieved document: {filename}"
+        else:
+            display_reason = f"Encrypted pipeline — {reason} in {filename}"
         log_decision(question, {
             "decision": "BLOCK",
-            "reason": f"Encrypted pipeline — {reason} in {filename}",
-            "stopped_by": "Regex + ML Firewall",
+            "reason": display_reason,
+            "stopped_by": stopped_by,
         })
 
     # Add relevance scores to sources
@@ -208,6 +218,14 @@ def secure_query():
             source["relevance_score"] = round(score_map[source["filename"]], 3)
 
     if "[No relevant context found]" in context:
+        log_audit(
+            organization_id=org_id or 1,
+            user_id=user_id,
+            action="encrypted_query",
+            target_type="SecureQuery",
+            metadata={"query": question[:200], "sources_count": 0, "result": "no_usable_context"},
+        )
+        log_decision(question, {"decision": "ALLOW", "reason": "encrypted_pipeline — no usable context"})
         return jsonify({
             "decision": "ALLOW",
             "answer": "Found encrypted documents but no usable context. Try rephrasing.",
@@ -224,6 +242,14 @@ def secure_query():
         raw_answer = generation.raw_text
         answer     = clean_rag_output(raw_answer)
     except Exception as exc:
+        log_audit(
+            organization_id=org_id or 1,
+            user_id=user_id,
+            action="encrypted_query",
+            target_type="SecureQuery",
+            metadata={"query": question[:200], "result": "llm_error", "error": str(exc)},
+        )
+        log_decision(question, {"decision": "BLOCK", "reason": f"llm_error: {exc}", "stopped_by": "LLM"})
         return jsonify({
             "decision": "BLOCK",
             "reason": f"llm_error: {exc}",
@@ -231,6 +257,14 @@ def secure_query():
         })
 
     if not answer:
+        log_audit(
+            organization_id=org_id or 1,
+            user_id=user_id,
+            action="encrypted_query",
+            target_type="SecureQuery",
+            metadata={"query": question[:200], "result": "empty_response"},
+        )
+        log_decision(question, {"decision": "ALLOW", "reason": "encrypted_pipeline — empty LLM response"})
         return jsonify({
             "decision": "ALLOW",
             "answer": "Unable to generate a response. Please try again.",
@@ -242,6 +276,18 @@ def secure_query():
     # ------------------------------------------------------------------
     is_jailbreak, jailbreak_reason = firewall.inspect_llm_output(answer)
     if is_jailbreak:
+        log_audit(
+            organization_id=org_id or 1,
+            user_id=user_id,
+            action="firewall_injection_block",
+            target_type="SecureQuery",
+            metadata={"query": question[:200], "reason": jailbreak_reason},
+        )
+        log_decision(question, {
+            "decision": "BLOCK",
+            "reason": f"Jailbreak — {jailbreak_reason}",
+            "stopped_by": "Output Firewall",
+        })
         return jsonify({
             "decision": "BLOCK",
             "reason": f"Jailbreak — {jailbreak_reason}",
@@ -258,6 +304,24 @@ def secure_query():
     # ------------------------------------------------------------------
     # Audit log — decryption event
     # ------------------------------------------------------------------
+    regex_redacted = final_answer != answer
+    
+    # Determine decision
+    decision = "ALLOW"
+    reason = "encrypted_pipeline"
+    stopped_by = "Encrypted Pipeline"
+
+    if "<REDACTED>" in final_answer or regex_redacted:
+        decision = "REDACTED"
+        reason = "Data Leak — PII redacted from response"
+        stopped_by = "PII Redaction Engine (Secure Pipeline)"
+    else:
+        sensitive_keywords = ['ssn', 'passport', 'credit card', 'password', 'vpn', 'social security']
+        if any(k in question.lower() for k in sensitive_keywords):
+            decision = "REDACTED"
+            reason = "Security Policy — PII Query Monitored"
+            stopped_by = "Access Control Layer (Secure Pipeline)"
+
     log_audit(
         organization_id=org_id or 1,
         user_id=user_id,
@@ -265,19 +329,25 @@ def secure_query():
         target_type="SecureQuery",
         metadata={
             "query":            question[:200],
+            "decision":         decision,
+            "reason":           reason,
+            "stopped_by":       stopped_by,
             "sources_count":    len(used_sources),
             "chunks_decrypted": len(docs),
             "chunks_filtered":  len(removed_chunks),
         },
     )
     log_decision(question, {
-        "decision": "ALLOW",
-        "reason":   "encrypted_pipeline",
+        "decision": decision,
+        "reason":   reason,
+        "stopped_by": stopped_by,
         "sources":  [s.get("filename") for s in used_sources],
     })
 
     return jsonify({
-        "decision": "ALLOW",
+        "decision": decision,
+        "reason":   reason,
+        "stopped_by": stopped_by,
         "answer":   final_answer,
         "sources":  used_sources,
         "provider": "secure_local",

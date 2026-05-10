@@ -36,6 +36,8 @@ export default function LogsTable({ logs }) {
                     className={`py-2 font-semibold ${
                       log.decision === "BLOCK"
                         ? "text-red-400"
+                        : log.decision === "REDACTED"
+                        ? "text-orange-400"
                         : log.decision === "ALLOW"
                         ? "text-green-400"
                         : "text-yellow-400"

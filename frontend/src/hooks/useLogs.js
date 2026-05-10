@@ -21,6 +21,11 @@ export default function useLogs() {
       // Handle both array and object responses from the API
       const allLogs = (Array.isArray(data) ? data : data.logs) || [];
 
+      console.log(`[useLogs] fetched ${allLogs.length} logs from /logs`, {
+        firstEntry: allLogs[0],
+        url: process.env.NEXT_PUBLIC_API_URL || "http://localhost:5200",
+      });
+
       // Logs are all entries
       setLogs(allLogs);
 
@@ -28,7 +33,9 @@ export default function useLogs() {
       const alertsData = allLogs
         .filter(
           (log) =>
-            log.decision?.toUpperCase() === "BLOCK" || log.is_anomaly === true
+            log.decision?.toUpperCase() === "BLOCK" ||
+            log.decision?.toUpperCase() === "REDACTED" ||
+            log.is_anomaly === true
         )
         .map((log) => ({
           ...log,

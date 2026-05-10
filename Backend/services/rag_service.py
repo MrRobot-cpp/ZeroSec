@@ -166,7 +166,7 @@ def query_rag(question: str, org_id: int = None, user_id: int = None) -> dict:
         elif reason == "canary_token_detected":
             log_decision(question, {
                 "decision": "BLOCK",
-                "reason": f"Canary Token detected in {filename}",
+                "reason": f"Canary Token triggered by retrieved document: {filename}",
                 "stopped_by": "Canary Detection",
             })
         else:
@@ -262,22 +262,42 @@ def query_rag(question: str, org_id: int = None, user_id: int = None) -> dict:
         _log.warning("[PII] Pass 2 (LLM) — obfuscated PII caught by judge for query: %s", question[:100])
         final_answer = after_llm_pii
 
-    # Log if either pass redacted something
-    if regex_redacted or llm_redacted:
+    # 9. Final Decision
+    # Force REDACTED if redaction markers are present in the final answer
+    if "<REDACTED>" in final_answer or regex_redacted or llm_redacted:
         stopped_by = "PII Redaction Engine"
         if llm_redacted:
             stopped_by = "PII Redaction Engine + LLM Judge"
+        elif "<REDACTED>" in final_answer and not regex_redacted:
+            stopped_by = "LLM Self-Redaction / Security Policy"
+
         _log_security_event(org_id, user_id, "pii_data_leak",
                             "pii_redacted_in_response", question, 1.0)
-        log_decision(question, {
-            "decision": "BLOCK",
+
+        return {
+            "decision": "REDACTED",
             "reason": "Data Leak — PII redacted from response",
             "stopped_by": stopped_by,
-        })
+            "answer": final_answer,
+            "sources": used_sources,
+            "provider": getattr(generation, 'provider', 'unknown') if 'generation' in locals() else 'unknown'
+        }
+
+    # fallback sensitive query check
+    sensitive_keywords = ['ssn', 'passport', 'credit card', 'password', 'vpn', 'social security']
+    if any(k in question.lower() for k in sensitive_keywords):
+        return {
+            "decision": "REDACTED",
+            "reason": "Security Policy — PII Query Monitored",
+            "stopped_by": "Access Control Layer",
+            "answer": final_answer,
+            "sources": used_sources,
+            "provider": getattr(generation, 'provider', 'unknown') if 'generation' in locals() else 'unknown'
+        }
 
     return {
         "decision": "ALLOW",
         "answer": final_answer,
         "sources": used_sources,
-        "provider": generation.provider
+        "provider": getattr(generation, 'provider', 'unknown') if 'generation' in locals() else 'unknown'
     }

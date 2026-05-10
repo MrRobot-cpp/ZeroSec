@@ -65,6 +65,9 @@ export default function LogsTab({ logsData }) {
     if (decisionUpper === "BLOCK") {
       return <span className="px-2 py-1 rounded text-xs font-medium bg-red-900/50 text-red-300">BLOCK</span>;
     }
+    if (decisionUpper === "REDACTED") {
+      return <span className="px-2 py-1 rounded text-xs font-medium bg-orange-900/50 text-orange-300">REDACTED</span>;
+    }
     return <span className="px-2 py-1 rounded text-xs font-medium bg-gray-700 text-gray-300">{decision || "N/A"}</span>;
   };
 
@@ -169,8 +172,21 @@ export default function LogsTab({ logsData }) {
                     <div className="flex flex-col items-center gap-3">
                       <p className="text-gray-400">No logs found</p>
                       <p className="text-sm text-gray-500">
-                        Try adjusting your filters or search term
+                        {logsData.logs.length > 0
+                          ? `${logsData.logs.length} log(s) exist but are hidden by active filters.`
+                          : "No logs have been recorded yet."}
                       </p>
+                      {logsData.logs.length > 0 && (
+                        <button
+                          onClick={() => {
+                            applyFilters({ type: "all", decision: "all", search: "" });
+                            setSearchInput("");
+                          }}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                        >
+                          Clear Filters
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -328,5 +344,6 @@ LogsTab.propTypes = {
     applyFilters: PropTypes.func.isRequired,
     getFilteredLogs: PropTypes.func.isRequired,
     loading: PropTypes.bool.isRequired,
+    logs: PropTypes.array,
   }).isRequired,
 };

@@ -44,11 +44,12 @@ GROQ_LLM_MODEL  = "llama-3.1-8b-instant"
 GROQ_MAX_TOKENS = 512
 GROQ_TEMPERATURE = 0.3
 
-# Retrieval config
+# Retrieval config — all-MiniLM-L6-v2 produces higher L2 distances than nomic-embed-text,
+# so thresholds are calibrated separately from the standard Ollama provider.
 TOP_K               = 10
-DISTANCE_THRESHOLD  = 1.8
+DISTANCE_THRESHOLD  = 1.8   # allows relevant chunks (typical range 0.8–1.8 for this model)
 MAX_RESULTS         = 5
-MIN_SCORE           = 0.30
+MIN_SCORE           = 0.35  # slightly above original 0.30 — real fix was removing junk files
 
 
 class SecureRAGProvider(BaseRAGProvider):

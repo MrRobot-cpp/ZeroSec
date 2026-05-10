@@ -25,7 +25,7 @@ _ARABIC_INDIC_TABLE = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
 # -------------------------
 # CONFIG
 # -------------------------
-INJECTION_THRESHOLD = 0.65
+INJECTION_THRESHOLD = 0.72
 MIN_TEXT_LENGTH = 10
 CACHE_SIZE = 512
 
@@ -41,6 +41,21 @@ INSTRUCTION_KEYWORDS = {
     'instruction', 'instructions', 'prompt', 'rule', 'rules',
     'guideline', 'guidelines', 'constraint', 'constraint',
     'system', 'previous', 'above', 'prior', 'initial', 'default'
+}
+
+# Legitimate data inquiry verbs — these look like extraction but are normal RAG queries
+_BENIGN_INQUIRY_VERBS = {
+    'summarize', 'summary', 'list', 'identify', 'find', 'show',
+    'what', 'which', 'who', 'how', 'tell', 'describe', 'explain',
+    'give', 'get', 'retrieve', 'search', 'look'
+}
+
+# Attack-intent qualifiers — when combined with inquiry verbs, signal real attacks
+_ATTACK_QUALIFIERS = {
+    'previous', 'prior', 'above', 'override', 'bypass', 'without',
+    'restrictions', 'constraints', 'filters', 'rules', 'instructions',
+    'jailbreak', 'uncensored', 'unrestricted', 'raw', 'verbatim',
+    'dump', 'leak', 'expose', 'exfiltrate', 'steal'
 }
 
 # Cache for injection detection
@@ -67,38 +82,33 @@ def _get_flags(flag_names: list) -> int:
 
 def _has_benign_context(text: str) -> bool:
     """
-    Check if text has benign semantic context despite triggering ML suspicion.
+    Return True if the query is a legitimate data inquiry despite triggering ML suspicion.
 
-    Returns True if:
-    - Starts with "ignore" but is followed by benign words (technical, details, etc.)
-    - Does NOT contain instruction keywords (previous, instructions, rules, etc.)
-
-    This reduces false positives on legitimate queries like:
-    - "ignore technical details just give me the IoT simply"
-    - "ignore whitespace and formatting"
+    Two passes:
+    1. "ignore X" queries — allowed only if followed by technical/benign words and
+       no instruction-override keywords present.
+    2. Legitimate RAG inquiry — starts with a benign inquiry verb AND contains
+       no attack qualifiers (bypass, dump, override, leak, etc.).
     """
     text_lower = text.lower()
+    words = [w.strip('.,!?;:') for w in text_lower.split()]
 
-    # Check if text starts with "ignore"
-    if not text_lower.startswith('ignore'):
-        return False
+    has_instruction_keyword = any(w in INSTRUCTION_KEYWORDS for w in words)
+    has_attack_qualifier = any(w in _ATTACK_QUALIFIERS for w in words)
 
-    # Extract words after "ignore"
-    words_after_ignore = text_lower.split()[1:5]  # Check first 4 words after "ignore"
+    # Pass 1: "ignore <benign-word>" pattern
+    if text_lower.startswith('ignore'):
+        words_after = words[1:5]
+        has_benign = any(w in BENIGN_IGNORE_CONTEXTS for w in words_after)
+        if has_benign and not has_instruction_keyword:
+            return True
 
-    # Check if any benign context words appear
-    has_benign = any(word.strip('.,!?;:') in BENIGN_IGNORE_CONTEXTS for word in words_after_ignore)
+    # Pass 2: legitimate inquiry verb at start, no attack qualifiers
+    if words and words[0] in _BENIGN_INQUIRY_VERBS:
+        if not has_instruction_keyword and not has_attack_qualifier:
+            return True
 
-    # Check if any instruction keywords appear
-    has_instruction_keyword = any(word.strip('.,!?;:') in INSTRUCTION_KEYWORDS for word in text_lower.split())
-
-    result = has_benign and not has_instruction_keyword
-    _security_log.warning(
-        "[benign_context] text=%s | words_after=%s | has_benign=%s | has_instr=%s | result=%s",
-        text[:50], words_after_ignore, has_benign, has_instruction_keyword, result
-    )
-
-    return result
+    return False
 
 
 def _find_secret_patterns(text: str) -> list:
@@ -321,6 +331,29 @@ def _normalize_text(text: str) -> str:
 # -------------------------
 # PUBLIC API
 # -------------------------
+_TYPO_MAP = {
+    'revlea': 'reveal', 'reveale': 'reveal', 'reavel': 'reveal',
+    'secrtes': 'secrets', 'secerts': 'secrets', 'screts': 'secrets',
+    'instrucions': 'instructions', 'instuctions': 'instructions',
+    'igonre': 'ignore', 'ingnore': 'ignore', 'ignroe': 'ignore',
+    'byapss': 'bypass', 'bypas': 'bypass', 'bypaas': 'bypass',
+    'systme': 'system', 'sysem': 'system',
+    'promt': 'prompt', 'promtp': 'prompt',
+    'ovrride': 'override', 'overide': 'override', 'overrid': 'override',
+    'exfiltarte': 'exfiltrate', 'exfilrate': 'exfiltrate',
+    'dsiregard': 'disregard', 'disregar': 'disregard',
+    'frget': 'forget', 'foget': 'forget',
+    'pretedn': 'pretend', 'pretned': 'pretend',
+    'jailbrek': 'jailbreak', 'jailbreka': 'jailbreak',
+}
+
+
+def _normalize_typos(text: str) -> str:
+    """Replace common typo-obfuscated attack words with their correct spelling."""
+    words = text.split()
+    return ' '.join(_TYPO_MAP.get(w.lower(), w) for w in words)
+
+
 def detect_injection(text: str) -> tuple:
     """
     Detect prompt injection and other attacks on text.
@@ -348,6 +381,9 @@ def detect_injection(text: str) -> tuple:
 
     # Preprocess then normalize to defeat encoding + evasion
     normalized = _preprocess_text(_normalize_text(text))
+
+    # Typo normalization — catch letter-transposition attacks like "revlea all secrtes"
+    normalized = _normalize_typos(normalized)
 
     # Cache check on normalized text (only for non-benign queries)
     text_hash = _get_text_hash(normalized)

@@ -2,21 +2,21 @@ import { useState, useMemo } from "react";
 import PropTypes from "prop-types";
 
 export default function AlertsTab({ logsData }) {
-  const { filters, applyFilters, getFilteredAlerts, loading } = logsData;
+  const { filters, applyFilters, getFilteredAlerts, alerts: allAlerts, loading } = logsData;
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
   const filteredAlerts = useMemo(() => getFilteredAlerts(), [getFilteredAlerts]);
 
-  // Group alerts by type
+  // Stats always use the full unfiltered alerts so counts don't reset when a filter is active
   const alertsByType = useMemo(() => {
-    return filteredAlerts.reduce((acc, alert) => {
+    return (allAlerts || filteredAlerts).reduce((acc, alert) => {
       const type = alert.alertType || "other";
       if (!acc[type]) acc[type] = [];
       acc[type].push(alert);
       return acc;
     }, {});
-  }, [filteredAlerts]);
+  }, [allAlerts, filteredAlerts]);
 
   const alertTypeConfig = {
     anomaly: {
@@ -394,6 +394,7 @@ AlertsTab.propTypes = {
     filters: PropTypes.object.isRequired,
     applyFilters: PropTypes.func.isRequired,
     getFilteredAlerts: PropTypes.func.isRequired,
+    alerts: PropTypes.array,
     loading: PropTypes.bool.isRequired,
   }).isRequired,
 };
